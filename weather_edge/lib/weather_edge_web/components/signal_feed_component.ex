@@ -49,6 +49,14 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
               <span>Model: {format_model_prob(signal)}</span>
               <span class="font-semibold text-zinc-700">Edge: {format_edge(signal)}</span>
             <% end %>
+            <a
+              :if={market_url(signal) != nil}
+              href={market_url(signal)}
+              target="_blank"
+              class="text-blue-500 hover:text-blue-700 hover:underline ml-auto"
+            >
+              Open ↗
+            </a>
           </div>
         </div>
       </div>
@@ -161,6 +169,19 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
 
   defp format_timestamp(%{timestamp: %DateTime{} = dt}), do: Calendar.strftime(dt, "%H:%M:%S")
   defp format_timestamp(_), do: "--:--:--"
+
+  # --- Market URL ---
+
+  defp market_url(%{event_slug: slug}) when is_binary(slug) and slug != "" do
+    "https://polymarket.com/event/#{slug}"
+  end
+
+  defp market_url(%WeatherEdge.Signals.Signal{market_cluster: %{event_slug: slug}})
+       when is_binary(slug) and slug != "" do
+    "https://polymarket.com/event/#{slug}"
+  end
+
+  defp market_url(_), do: nil
 
   # --- Target date ---
 

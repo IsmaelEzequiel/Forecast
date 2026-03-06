@@ -32,7 +32,7 @@ defmodule WeatherEdge.Workers.MispricingWorker do
         case Detector.detect_mispricings(cluster, distribution) do
           {:ok, signals, _flags} when signals != [] ->
             {:ok, _records} = Signals.store_signals(cluster.id, cluster.station_code, signals)
-            Alerter.broadcast_signals(cluster.station_code, signals, cluster.target_date)
+            Alerter.broadcast_signals(cluster.station_code, signals, cluster.target_date, cluster.event_slug)
 
             Logger.info(
               "MispricingWorker: #{length(signals)} signal(s) for #{cluster.station_code} event #{cluster.event_id}"

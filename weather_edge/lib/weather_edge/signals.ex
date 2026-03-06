@@ -59,6 +59,7 @@ defmodule WeatherEdge.Signals do
     |> order_by([s], desc: s.computed_at)
     |> limit(^limit)
     |> Repo.all()
+    |> Repo.preload(:market_cluster)
   end
 
   @doc """
