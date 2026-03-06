@@ -19,6 +19,7 @@ RUN mix deps.compile
 COPY lib lib
 COPY priv priv
 COPY assets assets
+COPY entrypoint.sh ./
 
 RUN mix assets.deploy
 RUN mix compile
