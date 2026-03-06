@@ -255,3 +255,16 @@
   - ExKeccak.hash_256/1 for keccak256 hashing
   - Auth headers: POLY-ADDRESS, POLY-SIGNATURE, POLY-TIMESTAMP, POLY-NONCE, POLY-API-KEY, POLY-PASSPHRASE
 ---
+
+## 2026-03-06 - US-020
+- Implemented: CLOB authenticated endpoints for order placement, cancellation, and listing open orders
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/clob_client.ex` - Extended with place_order/5 (EIP-712 signed + L2 auth), cancel_order/1 (L2 auth DELETE), get_open_orders/0 (L2 auth GET), build_order_struct helper
+- **Learnings for future iterations:**
+  - Polymarket order amounts use 6 decimal precision (multiply by 1_000_000 for USDC/share amounts)
+  - BUY orders: makerAmount = price * size * 1e6 (USDC paid), takerAmount = size * 1e6 (shares received)
+  - SELL orders: makerAmount = size * 1e6 (shares given), takerAmount = price * size * 1e6 (USDC received)
+  - Order struct for CLOB API uses camelCase keys (tokenId, makerAmount, etc.) while internal struct uses snake_case
+  - cancel_order uses DELETE method with JSON body (not URL param), body is `{"orderID": "..."}`
+  - Auth.sign_request body param should match the actual request body for HMAC to verify correctly
+---
