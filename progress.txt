@@ -10,7 +10,9 @@
 - Schemas follow `lib/weather_edge/<context>/<schema>.ex` pattern (e.g., `stations/station.ex`)
 - Migrations use `timestamps(type: :timestamptz)`, schemas use `timestamps(type: :utc_datetime)`
 - Hypertable migrations use `up/down` (not `change`), composite PK via ALTER TABLE, and `SELECT create_hypertable()`
-- Trading context lives in `lib/weather_edge/trading/` (Position, Order schemas)
+- Trading context lives in `lib/weather_edge/trading/` (Position, Order, OrderManager, ClobClient, DataClient, Auth)
+- OrderManager uses `:persistent_term` for rate limiting (key: `{:order_manager_rate_limit, station_code}`)
+- PubSub topic for trading events: `"trading:STATION_CODE"` with events `:order_placed`, `:order_filled`, `:order_failed`
 - Signals context lives in `lib/weather_edge/signals/` (Signal schema)
 - Calibration context lives in `lib/weather_edge/calibration/` (Accuracy schema)
 - Git working directory is `weather_edge/` - use relative paths for git add/commit
@@ -267,4 +269,16 @@
   - Order struct for CLOB API uses camelCase keys (tokenId, makerAmount, etc.) while internal struct uses snake_case
   - cancel_order uses DELETE method with JSON body (not URL param), body is `{"orderID": "..."}`
   - Auth.sign_request body param should match the actual request body for HMAC to verify correctly
+---
+
+## 2026-03-06 - US-021
+- Implemented: Order manager with safety guards for order lifecycle orchestration
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/order_manager.ex` - OrderManager with place_buy_order/3, mark_filled/1, mark_failed/1, balance validation, duplicate detection, rate limiting, retry logic, position management
+- **Learnings for future iterations:**
+  - `:persistent_term` works well for simple rate limiting (key-value timestamp tracking per station)
+  - Order flow: validate balance -> check duplicates -> check rate limit -> place via ClobClient -> create Order record -> create/update Position
+  - Retry logic: on first failure, sleep `order_retry_delay_ms` then retry once; on second failure, record as failed
+  - Fill detection: schedule async Task to check if order is still in open orders after 5 seconds
+  - Trading safety config keys: `min_reserve_usdc`, `max_orders_per_minute`, `max_position_per_event`, `order_retry_delay_ms`
 ---
