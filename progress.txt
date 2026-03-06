@@ -7,6 +7,13 @@
 - Trading safety config is under `:trading` key, forecasts under `:forecasts` key
 - Docker: `docker-compose up` from `weather_edge/` dir; app runs migrations on startup via entrypoint.sh
 - Production release uses `WeatherEdge.Release.migrate/0` for Ecto migrations
+- Schemas follow `lib/weather_edge/<context>/<schema>.ex` pattern (e.g., `stations/station.ex`)
+- Migrations use `timestamps(type: :timestamptz)`, schemas use `timestamps(type: :utc_datetime)`
+- Hypertable migrations use `up/down` (not `change`), composite PK via ALTER TABLE, and `SELECT create_hypertable()`
+- Trading context lives in `lib/weather_edge/trading/` (Position, Order schemas)
+- Signals context lives in `lib/weather_edge/signals/` (Signal schema)
+- Calibration context lives in `lib/weather_edge/calibration/` (Accuracy schema)
+- Git working directory is `weather_edge/` - use relative paths for git add/commit
 
 ---
 
@@ -37,4 +44,124 @@
   - Docker CMD with `&&` doesn't work for chaining commands; use an entrypoint script instead
   - WeatherEdge.Release module needed for running migrations in production releases
   - The docker-compose.yml overrides DATABASE_URL in environment to point to the `db` service
+---
+
+## 2026-03-06 - US-003
+- Implemented: Stations table migration and Station Ecto schema
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306155813_create_stations.exs` - Migration with all columns, unique index on code
+  - `weather_edge/lib/weather_edge/stations/station.ex` - Ecto schema with changeset validation (required fields, uppercase code format, unique constraint)
+- **Learnings for future iterations:**
+  - Schemas go in `lib/weather_edge/<context>/<schema>.ex` pattern (e.g., `stations/station.ex`)
+  - Use `:string` with `size:` option in migrations for varchar columns
+  - Use `timestamps(type: :timestamptz)` in migrations and `timestamps(type: :utc_datetime)` in schemas
+  - The working directory for CLI commands is already `weather_edge/`, not repo root
+---
+
+## 2026-03-06 - US-004
+- Implemented: MarketCluster table migration and Ecto schema
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306170000_create_market_clusters.exs` - Migration with all columns, unique index on event_id, composite index on (station_code, target_date), partial index on resolved=false
+  - `weather_edge/lib/weather_edge/markets/market_cluster.ex` - Ecto schema with belongs_to :station (foreign_key: :station_code, references: :code)
+- **Learnings for future iterations:**
+  - belongs_to with a non-standard foreign key requires `foreign_key:`, `references:`, and `type:` options
+  - Markets context lives in `lib/weather_edge/markets/`
+  - Partial indexes use `where:` option in `create index` with raw SQL condition
+---
+
+## 2026-03-06 - US-005
+- Implemented: MarketSnapshot hypertable migration and Ecto schema
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306180000_create_market_snapshots.exs` - Migration with composite PK on (id, snapshot_at), create_hypertable call, references market_clusters
+  - `weather_edge/lib/weather_edge/markets/market_snapshot.ex` - Ecto schema with belongs_to :market_cluster, changeset with required fields validation
+- **Learnings for future iterations:**
+  - Hypertables need `up/down` instead of `change` because `create_hypertable` is not reversible by Ecto
+  - Composite primary keys require `primary_key: false` on the table and columns, then a manual ALTER TABLE ADD PRIMARY KEY
+  - TimescaleDB requires the partitioning column (snapshot_at) to be part of the primary key
+  - Hypertable schemas live alongside related schemas in the same context (e.g., `markets/market_snapshot.ex`)
+---
+
+## 2026-03-06 - US-006
+- Implemented: ForecastSnapshot hypertable migration and Ecto schema
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306190000_create_forecast_snapshots.exs` - Migration with composite PK on (id, fetched_at), references stations(code), create_hypertable call
+  - `weather_edge/lib/weather_edge/forecasts/forecast_snapshot.ex` - Ecto schema with belongs_to :station (foreign_key: :station_code, references: :code), jsonb hourly_temps field
+- **Learnings for future iterations:**
+  - Forecasts context lives in `lib/weather_edge/forecasts/`
+  - For jsonb columns, use `:map` type in Ecto schema
+  - The `forecasts/` directory was new and needed to be created
+---
+
+## 2026-03-06 - US-007
+- Implemented: Positions and Orders tables migration and Ecto schemas
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306200000_create_positions_and_orders.exs` - Single migration creating both tables with all columns, indexes, and foreign keys
+  - `weather_edge/lib/weather_edge/trading/position.ex` - Position schema with belongs_to station/market_cluster, has_many orders
+  - `weather_edge/lib/weather_edge/trading/order.ex` - Order schema with belongs_to position
+- **Learnings for future iterations:**
+  - Trading context lives in `lib/weather_edge/trading/`
+  - Closely related tables (positions + orders) can share a single migration file
+  - Git working directory is `weather_edge/` so use relative paths from there for git commands
+---
+
+## 2026-03-06 - US-008
+- Implemented: Signals hypertable and ForecastAccuracy table migrations and schemas
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306210000_create_signals_and_forecast_accuracy.exs` - Single migration creating both tables: signals hypertable with composite PK (id, computed_at) and forecast_accuracy with unique constraint on (station_code, target_date)
+  - `weather_edge/lib/weather_edge/signals/signal.ex` - Signal schema with belongs_to market_cluster, station_code field, changeset with validations
+  - `weather_edge/lib/weather_edge/calibration/accuracy.ex` - Accuracy schema with belongs_to station (foreign_key: station_code, references: code), timestamps(updated_at: false)
+- **Learnings for future iterations:**
+  - Signals context lives in `lib/weather_edge/signals/`
+  - Calibration context lives in `lib/weather_edge/calibration/`
+  - For tables with only inserted_at (no updated_at), use `timestamps(type: :utc_datetime, updated_at: false)` in schema and `timestamps(type: :timestamptz, updated_at: false)` in migration
+  - forecast_accuracy uses standard bigserial PK (not a hypertable) unlike signals which is a hypertable
+---
+
+## 2026-03-06 - US-009
+- Implemented: Aviation Weather METAR client using Req
+- Files changed:
+  - `weather_edge/lib/weather_edge/forecasts/metar_client.ex` - MetarClient with validate_station/1 and get_current_conditions/1, JSON format parsing, humidity calculation via Magnus formula
+- **Learnings for future iterations:**
+  - Aviation Weather METAR API returns JSON when `format: "json"` param is passed; returns array of METAR objects
+  - METAR JSON fields: icaoId, name, lat, lon, temp, dewp, wspd, wdir, rawOb, reportTime
+  - Empty array response means invalid ICAO code
+  - metar_base_url is configured in `:forecasts` config key
+  - Req.TransportError with reason :timeout handles timeouts
+---
+
+## 2026-03-06 - US-010
+- Implemented: Stations context with CRUD operations and METAR validation
+- Files changed:
+  - `weather_edge/lib/weather_edge/stations.ex` - Context module with create_station/1, update_station/2, delete_station/1, list_stations/0, get_station/1, get_by_code/1
+- **Learnings for future iterations:**
+  - Context modules go in `lib/weather_edge/<context_name>.ex` (not inside the context subdirectory)
+  - PubSub is `WeatherEdge.PubSub`, already in supervision tree
+  - create_station/1 accepts both string and atom key maps (handles `%{"code" => ...}` and `%{code: ...}`)
+  - MetarClient.validate_station/1 returns `{:ok, %{code:, city:, latitude:, longitude:, country:}}` on success
+  - Slug pattern generation: downcase city, remove non-alphanumeric, replace spaces with hyphens, wrap in template
+---
+
+## 2026-03-06 - US-011
+- Implemented: Gamma API client for Polymarket event discovery
+- Files changed:
+  - `weather_edge/lib/weather_edge/markets/gamma_client.ex` - GammaClient with get_events/1, search_events/1, get_event_by_slug/1
+- **Learnings for future iterations:**
+  - Gamma API base URL: `https://gamma-api.polymarket.com`
+  - Events endpoint: `/events` with query params for filtering (active, closed, limit, offset, slug, tag)
+  - GammaClient lives in markets context alongside MarketCluster and MarketSnapshot
+  - Configurable base URL via `:gamma_api_url` app env key
+  - Rate limiting returns 429 status, handled as `{:error, :rate_limited}`
+---
+
+## 2026-03-06 - US-012
+- Implemented: Event parser and Markets context
+- Files changed:
+  - `weather_edge/lib/weather_edge/markets/event_parser.ex` - EventParser with parse_event/1, extracts event_id, slug, title, target_date, station_code, outcomes from Gamma API JSON
+  - `weather_edge/lib/weather_edge/markets.ex` - Markets context with create_market_cluster/1, get_active_clusters/0, get_clusters_for_station/1, mark_resolved/2
+- **Learnings for future iterations:**
+  - Gamma API event JSON has `outcomePrices` as a JSON-encoded string (e.g., `"[\"0.5\",\"0.5\"]"`), needs Jason.decode then Float.parse
+  - `clobTokenIds` can be a JSON-encoded string or list depending on API version
+  - Temperature degree extraction from questions uses regex: `(\d+)\s*degrees?` pattern, edge buckets have "or below"/"or higher" suffixes
+  - Context modules go in `lib/weather_edge/<context_name>.ex` (confirmed from Stations pattern)
+  - Markets context follows same pattern as Stations: Ecto.Query imports, Repo alias, simple CRUD functions
 ---
