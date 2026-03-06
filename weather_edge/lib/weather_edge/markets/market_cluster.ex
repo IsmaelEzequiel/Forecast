@@ -7,7 +7,7 @@ defmodule WeatherEdge.Markets.MarketCluster do
     field :event_slug, :string
     field :target_date, :date
     field :title, :string
-    field :outcomes, :map
+    field :outcomes, {:array, :map}
     field :resolved, :boolean, default: false
     field :resolution_temp, :integer
 

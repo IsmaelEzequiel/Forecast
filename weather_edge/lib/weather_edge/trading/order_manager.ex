@@ -8,7 +8,7 @@ defmodule WeatherEdge.Trading.OrderManager do
   require Logger
 
   alias WeatherEdge.Repo
-  alias WeatherEdge.Trading.{ClobClient, DataClient, Order, Position}
+  alias WeatherEdge.Trading.{Order, Position}
 
   import Ecto.Query
 
@@ -38,7 +38,7 @@ defmodule WeatherEdge.Trading.OrderManager do
          :ok <- validate_rate_limit(station_code) do
       size = amount / price
 
-      case ClobClient.place_order(token_id, "BUY", price, size) do
+      case clob_client().place_order(token_id, "BUY", price, size) do
         {:ok, response} ->
           order_id = response["orderID"] || response["order_id"] || response["id"]
 
@@ -122,7 +122,7 @@ defmodule WeatherEdge.Trading.OrderManager do
   defp validate_balance(amount) do
     min_reserve = trading_config()[:min_reserve_usdc] || 2.0
 
-    case DataClient.get_balance() do
+    case data_client().get_balance() do
       {:ok, balance} when balance >= amount + min_reserve ->
         :ok
 
@@ -240,7 +240,7 @@ defmodule WeatherEdge.Trading.OrderManager do
 
     Process.sleep(retry_delay)
 
-    case ClobClient.place_order(token_id, "BUY", price, size) do
+    case clob_client().place_order(token_id, "BUY", price, size) do
       {:ok, response} ->
         order_id = response["orderID"] || response["order_id"] || response["id"]
         label = outcome["outcome_label"]
@@ -314,7 +314,7 @@ defmodule WeatherEdge.Trading.OrderManager do
     order = Repo.get(Order, order.id)
 
     if order && order.status == "pending" do
-      case ClobClient.get_open_orders() do
+      case clob_client().get_open_orders() do
         {:ok, open_orders} ->
           still_open = Enum.any?(open_orders, fn o ->
             (o["id"] || o["orderID"]) == order.order_id
@@ -342,4 +342,7 @@ defmodule WeatherEdge.Trading.OrderManager do
   defp trading_config do
     Application.get_env(:weather_edge, :trading, [])
   end
+
+  defp data_client, do: Application.get_env(:weather_edge, :data_client, WeatherEdge.Trading.DataClient)
+  defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
 end

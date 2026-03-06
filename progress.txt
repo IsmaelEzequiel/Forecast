@@ -26,6 +26,11 @@
 - App layout is in `lib/weather_edge_web/components/layouts/app.html.heex`
 - CoreComponents defines `header/1` - avoid name collisions by prefixing custom component functions (e.g., `dashboard_header/1`)
 - Custom components go in `lib/weather_edge_web/components/<name>_component.ex` under `WeatherEdgeWeb.Components.*`
+- Tests go in `test/weather_edge/<context>/` mirroring `lib/` structure; use `DataCase` for DB-backed tests, `ConnCase` for web tests
+- MarketCluster outcomes field is `{:array, :map}` type - use list of maps, not a single map
+- OrderManager uses configurable client modules via `Application.get_env(:weather_edge, :data_client)` and `:clob_client` - mock in test config
+- Mock clients for trading tests are in `test/support/mock_clients.ex` using `Process.put/get` for per-test configuration
+- Docker `.env` file must exist for docker-compose (copy from `.env.example` with placeholder values)
 
 ---
 
@@ -495,4 +500,70 @@
   - Calendar.strftime/2 is available in Elixir for date formatting (e.g., "%b %-d" for "Mar 6")
   - Component composition: EventCardComponent is imported in StationCardComponent, not in DashboardLive
   - Date.diff/2 with Date.utc_today() gives days until resolution
+---
+
+## 2026-03-06 - US-038
+- Implemented: Signal feed component showing real-time mispricing signals and auto-buy events
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/signal_feed_component.ex` - New SignalFeedComponent with `signal_feed/1` function component: chronological signal list (newest first, max 50), color-coded by alert level (yellow=opportunity, orange=strong, red=extreme, green=safe_no), auto-buy events with indigo styling, scrollable container
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Imported SignalFeedComponent, replaced placeholder with `<.signal_feed>`, added handle_info for `:signal_detected` (prepends to signals list) and `:auto_buy_executed` (creates auto-buy signal map)
+- **Learnings for future iterations:**
+  - Signal structs from PubSub have atom keys (e.g., `signal.station_code`), but auto-buy events are plain maps constructed in the handler
+  - Use pattern matching on both `%{key: val}` and `%Module{key: val}` for component helpers to handle both struct and map signals
+  - `Enum.take(list, 50)` is a simple way to cap the signal feed size
+  - `:erlang.float_to_binary(float, decimals: N)` for formatting floats without pulling in extra deps
+---
+
+## 2026-03-06 - US-039
+- Implemented: Portfolio summary component showing open positions, invested amount, current value, unrealized P&L, today's realized, and total realized P&L
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/portfolio_summary_component.ex` - New PortfolioSummaryComponent with `portfolio_summary/1` function component: computes all metrics from positions list, color-coded P&L values, responsive 6-column grid
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Imported PortfolioSummaryComponent, replaced placeholder with `<.portfolio_summary>`, changed to load all positions (not just open) for realized P&L calculations, removed unused Ecto.Query import
+- **Learnings for future iterations:**
+  - Portfolio metrics are computed in the component from the positions list (no separate context query needed)
+  - Loading all positions (not just open) is required for realized P&L calculations
+  - `abs/1` is a kernel function available in HEEx templates for absolute value
+  - Color-coded P&L: green for positive, red for negative, zinc for zero
+---
+
+## 2026-03-06 - US-040
+- Implemented: Station detail LiveView with all data sections and real-time updates
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/live/station_detail_live.ex` - Full implementation replacing placeholders: temperature distribution table (model prob vs market price with bar visualization and edge), model breakdown per-model predicted max temp, market cluster health (YES price sum with deviation warning), orderbook (best bid/ask with spread) for user's position token, current METAR observation (temp/wind/humidity), position info section, SELL POSITION and BUY MORE action buttons, PubSub real-time updates
+- **Learnings for future iterations:**
+  - `send(self(), :load_data)` pattern works well for deferring expensive data loading (API calls, DB queries) after mount
+  - Distribution.top_n/2 returns sorted `[{label, prob}]` tuples - useful for rendering ranked tables
+  - Market cluster outcomes list has string keys ("outcome_label", "yes_price") - use `find_market_price/2` to match distribution labels to market prices
+  - Orderbook is only loaded when a position exists (need a token_id to query)
+  - `:erlang.float_to_binary(float, decimals: N)` is the standard float formatting approach across all components
+---
+
+## 2026-03-06 - US-041
+- Implemented: Tests for probability engine, Gaussian smoothing, and Distribution struct
+- Files changed:
+  - `weather_edge/test/weather_edge/probability/engine_test.exs` - 22 tests covering Gaussian.sigma/1, Gaussian.apply_kernel/2, Distribution helpers (top_outcome, top_n, probability_for), Engine.compute_distribution/3 (DB-backed with 5 model forecasts)
+  - `weather_edge/test/weather_edge_web/controllers/page_controller_test.exs` - Fixed stale scaffold test (route changed to DashboardLive in US-033)
+- **Learnings for future iterations:**
+  - Engine tests require DB (uses Forecasts.latest_snapshots which queries Repo) - use DataCase with Station + ForecastSnapshot inserts
+  - Gaussian kernel only smooths across existing keys in the input map - with a single key, all mass stays at that key
+  - For testing "wider sigma spreads more", use non-uniform input (not uniform, which stays uniform regardless of sigma)
+  - Pre-existing page_controller_test.exs from Phoenix scaffold was stale after US-033 replaced PageController route with DashboardLive
+  - Docker DB needs `.env` file to exist (even with placeholder values) - created from `.env.example`
+---
+
+## 2026-03-06 - US-042
+- Implemented: Tests for signal detector (10 tests) and order manager (7 tests)
+- Files changed:
+  - `weather_edge/test/weather_edge/signals/detector_test.exs` - 10 tests: edge calculation (YES/NO sides), alert level classification (opportunity/strong/extreme), safe NO detection, structural mispricing flag
+  - `weather_edge/test/weather_edge/trading/order_manager_test.exs` - 7 tests: balance check rejection/acceptance/boundary, duplicate order prevention (same event + different event), rate limiting rejection/expiry
+  - `weather_edge/test/support/mock_clients.ex` - MockDataClient and MockClobClient using Process dictionary for per-test configuration
+  - `weather_edge/config/test.exs` - Added mock client config for data_client and clob_client
+  - `weather_edge/lib/weather_edge/trading/order_manager.ex` - Made DataClient/ClobClient configurable via Application.get_env for testability
+  - `weather_edge/lib/weather_edge/markets/market_cluster.ex` - Fixed outcomes field type from `:map` to `{:array, :map}` (bug: was rejecting list of maps in changeset)
+- **Learnings for future iterations:**
+  - MarketCluster outcomes field was `:map` but should be `{:array, :map}` since outcomes is always a list of maps
+  - For testing modules with external HTTP dependencies, use configurable module attributes via `Application.get_env` with mock modules in `test/support/`
+  - `Process.put/get` works well for per-test mock configuration in sync tests (use `async: false`)
+  - `:persistent_term` can be directly manipulated in tests for rate limit testing - use `on_exit` to clean up
+  - Detector tests don't need DB (pure functions) - use `ExUnit.Case` instead of `DataCase`
 ---
