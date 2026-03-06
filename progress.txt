@@ -335,3 +335,13 @@
   - PubSub topic for forecast updates: `"station:CODE:forecast_update"` with event `:forecast_updated`
   - Partial failure handling: each station is processed independently, errors are logged but don't block other stations
 ---
+
+## 2026-03-06 - US-026
+- Implemented: Mispricing detection worker that runs every 5 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/mispricing_worker.ex` - MispricingWorker with Oban.Worker queue: :signals, iterates active clusters, runs Probability.Engine, passes to Detector, stores signals, broadcasts via Alerter
+- **Learnings for future iterations:**
+  - MispricingWorker follows same pattern as ForecastRefreshWorker: iterate entities, process each independently, rescue errors per-entity
+  - Detector.detect_mispricings returns `{:ok, signals, flags}` - signals may be empty list when no mispricings detected
+  - Engine.compute_distribution returns `{:error, :no_forecasts}` for clusters without forecast data yet (e.g., just-created events)
+---
