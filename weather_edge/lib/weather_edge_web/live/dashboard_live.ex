@@ -10,6 +10,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
   import WeatherEdgeWeb.Components.HeaderComponent
   import WeatherEdgeWeb.Components.AddStationModalComponent
   import WeatherEdgeWeb.Components.StationCardComponent
+  import WeatherEdgeWeb.Components.SignalFeedComponent
 
   @impl true
   def mount(_params, _session, socket) do
@@ -95,6 +96,27 @@ defmodule WeatherEdgeWeb.DashboardLive do
 
   def handle_info({:forecast_updated, _station_code}, socket) do
     {:noreply, socket}
+  end
+
+  def handle_info({:signal_detected, signal}, socket) do
+    signals = [signal | socket.assigns.signals] |> Enum.take(50)
+    {:noreply, assign(socket, signals: signals)}
+  end
+
+  def handle_info({:auto_buy_executed, station_code, details}, socket) do
+    auto_buy_signal =
+      %{
+        type: :auto_buy,
+        station_code: station_code,
+        outcome_label: details[:outcome_label] || "Unknown",
+        market_price: details[:price],
+        edge: nil,
+        alert_level: nil,
+        timestamp: DateTime.utc_now()
+      }
+
+    signals = [auto_buy_signal | socket.assigns.signals] |> Enum.take(50)
+    {:noreply, assign(socket, signals: signals)}
   end
 
   def handle_info({:new_event, _station_code, _cluster}, socket) do
@@ -252,11 +274,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
         <p class="text-lg">No stations yet. Add one to get started.</p>
       </div>
 
-      <!-- Signal Feed (placeholder) -->
-      <div class="rounded-lg border border-zinc-200 bg-white p-4">
-        <h3 class="text-sm font-semibold text-zinc-700 mb-2">Signal Feed</h3>
-        <p class="text-sm text-zinc-400">Mispricing signals will appear here</p>
-      </div>
+      <.signal_feed signals={@signals} />
 
       <.add_station_modal
         show={@show_add_station_modal}
