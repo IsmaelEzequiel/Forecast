@@ -282,3 +282,15 @@
   - Fill detection: schedule async Task to check if order is still in open orders after 5 seconds
   - Trading safety config keys: `min_reserve_usdc`, `max_orders_per_minute`, `max_position_per_event`, `order_retry_delay_ms`
 ---
+
+## 2026-03-06 - US-022
+- Implemented: Position tracker with sell/hold recommendations
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/position_tracker.ex` - PositionTracker with update_position/1 (fetches CLOB price, calculates unrealized P&L), generate_recommendation/1 (recommendation logic based on P&L%, model probability, days until resolution), sell_position/1 (places SELL order via ClobClient, updates position to "sold")
+- **Learnings for future iterations:**
+  - PositionTracker uses ClobClient.get_price(token_id, "sell") for current price (sell side = what you'd get if selling)
+  - Recommendation logic is a priority-ordered cond: SELL NOW > CONSIDER SELLING > HOLD > CUT LOSS > HOLD TO RESOLUTION > MONITORING
+  - P&L percentage calculated from unrealized_pnl / total_cost_usdc * 100
+  - sell_position/1 creates a SELL Order record and updates Position with close_price, realized_pnl, closed_at
+  - Engine.compute_distribution returns {:error, :no_forecasts} if no snapshots exist for station/date
+---
