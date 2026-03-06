@@ -18,6 +18,7 @@ defmodule WeatherEdge.Workers.ResolutionWorker do
   alias WeatherEdge.Trading.Position
   alias WeatherEdge.Forecasts.WundergroundClient
   alias WeatherEdge.Stations
+  alias WeatherEdge.Calibration.Resolver
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -46,6 +47,7 @@ defmodule WeatherEdge.Workers.ResolutionWorker do
       {:ok, actual_temp} ->
         {:ok, updated_cluster} = Markets.mark_resolved(cluster.id, actual_temp)
         resolve_positions(updated_cluster, actual_temp)
+        process_calibration(updated_cluster, actual_temp)
 
         Logger.info(
           "ResolutionWorker: Resolved #{cluster.station_code} #{cluster.target_date} -> #{actual_temp}°C"
@@ -105,6 +107,20 @@ defmodule WeatherEdge.Workers.ResolutionWorker do
   defp position_won?(position, cluster, actual_temp) do
     winning_outcome = determine_winning_outcome(cluster.outcomes, actual_temp)
     position.outcome_label == winning_outcome && position.side == "YES"
+  end
+
+  defp process_calibration(cluster, actual_temp) do
+    case Resolver.process_resolution(cluster, actual_temp) do
+      {:ok, accuracy} ->
+        Logger.info(
+          "ResolutionWorker: Calibration recorded for #{cluster.station_code} #{cluster.target_date} (correct: #{accuracy.resolution_correct})"
+        )
+
+      {:error, reason} ->
+        Logger.warning(
+          "ResolutionWorker: Failed to record calibration for #{cluster.station_code} #{cluster.target_date}: #{inspect(reason)}"
+        )
+    end
   end
 
   @doc false
