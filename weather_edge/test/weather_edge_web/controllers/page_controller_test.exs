@@ -1,0 +1,8 @@
+defmodule WeatherEdgeWeb.PageControllerTest do
+  use WeatherEdgeWeb.ConnCase
+
+  test "GET / renders dashboard", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    assert html_response(conn, 200) =~ "WeatherEdge"
+  end
+end

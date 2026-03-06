@@ -1,0 +1,587 @@
+## Codebase Patterns
+- Mix project root is at `weather_edge/` subdirectory (not repo root)
+- Run `mix compile --warnings-as-errors` from `weather_edge/` for typecheck
+- Oban cron workers are defined in `config/config.exs` - worker modules must exist before compilation
+- Test config uses `Oban, testing: :inline` to disable async job processing
+- Polymarket credentials are in runtime.exs under `:polymarket` key
+- Trading safety config is under `:trading` key, forecasts under `:forecasts` key
+- Docker: `docker-compose up` from `weather_edge/` dir; app runs migrations on startup via entrypoint.sh
+- Production release uses `WeatherEdge.Release.migrate/0` for Ecto migrations
+- Schemas follow `lib/weather_edge/<context>/<schema>.ex` pattern (e.g., `stations/station.ex`)
+- Migrations use `timestamps(type: :timestamptz)`, schemas use `timestamps(type: :utc_datetime)`
+- Hypertable migrations use `up/down` (not `change`), composite PK via ALTER TABLE, and `SELECT create_hypertable()`
+- Trading context lives in `lib/weather_edge/trading/` (Position, Order, OrderManager, ClobClient, DataClient, Auth)
+- OrderManager uses `:persistent_term` for rate limiting (key: `{:order_manager_rate_limit, station_code}`)
+- PubSub topic for trading events: `"trading:STATION_CODE"` with events `:order_placed`, `:order_filled`, `:order_failed`
+- Signals context lives in `lib/weather_edge/signals/` (Signal schema)
+- Calibration context lives in `lib/weather_edge/calibration/` (Accuracy schema)
+- Git working directory is `weather_edge/` - use relative paths for git add/commit
+- All PubSub usage goes through `WeatherEdge.PubSubHelper` - never use raw `Phoenix.PubSub` calls directly
+- Probability context lives in `lib/weather_edge/probability/` (Gaussian module)
+- Workers live in `lib/weather_edge/workers/` - use `use Oban.Worker, queue: :queue_name`
+- When referencing a worker that doesn't exist yet, create a stub so compilation passes
+- LiveView modules live in `lib/weather_edge_web/live/` - use `use WeatherEdgeWeb, :live_view`
+- Router uses `live "/path", ModuleLive` for LiveView routes (not `get`)
+- JS hooks are defined in `assets/js/app.js` in the `Hooks` object, passed to LiveSocket via `hooks: Hooks`
+- App layout is in `lib/weather_edge_web/components/layouts/app.html.heex`
+- CoreComponents defines `header/1` - avoid name collisions by prefixing custom component functions (e.g., `dashboard_header/1`)
+- Custom components go in `lib/weather_edge_web/components/<name>_component.ex` under `WeatherEdgeWeb.Components.*`
+- Tests go in `test/weather_edge/<context>/` mirroring `lib/` structure; use `DataCase` for DB-backed tests, `ConnCase` for web tests
+- MarketCluster outcomes field is `{:array, :map}` type - use list of maps, not a single map
+- OrderManager uses configurable client modules via `Application.get_env(:weather_edge, :data_client)` and `:clob_client` - mock in test config
+- Mock clients for trading tests are in `test/support/mock_clients.ex` using `Process.put/get` for per-test configuration
+- Docker `.env` file must exist for docker-compose (copy from `.env.example` with placeholder values)
+- HTTP client tests use Bypass for mocking - use `Bypass.stub` (not `expect_once`) for error responses since Req retries on 429/500
+- GammaClient uses `Application.get_env(:weather_edge, :gamma_api_url)` for configurable base URL (useful for test overrides)
+- LiveView tests use `ConnCase` with `import Phoenix.LiveViewTest`; modal close uses `render_hook` since CoreComponents modal has JS-driven close
+
+---
+
+## 2026-03-06 - US-001
+- Implemented: Phoenix 1.7+ project scaffold with all dependencies and configuration
+- Files changed:
+  - `weather_edge/mix.exs` - Added oban, req, timex, ex_secp256k1, ex_abi, ex_keccak deps
+  - `weather_edge/config/config.exs` - Oban config with 5 queues and 8 cron schedules, trading safety config, forecast config
+  - `weather_edge/config/runtime.exs` - Polymarket env vars (private_key, api_key, api_secret, api_passphrase, wallet_address), chain_id: 137
+  - `weather_edge/config/test.exs` - Oban testing: :inline
+  - `weather_edge/lib/weather_edge/application.ex` - Added Oban to supervision tree
+  - `weather_edge/.env.example` - All required env vars documented
+- **Learnings for future iterations:**
+  - Phoenix generator creates project in a subdirectory, so all mix commands must be run from `weather_edge/`
+  - The Oban cron plugin references worker modules that don't exist yet - compilation still passes because cron config is just atoms
+  - ex_secp256k1 and ex_keccak download precompiled NIFs via rustler_precompiled
+---
+
+## 2026-03-06 - US-002
+- Implemented: Docker Compose setup with multi-stage Dockerfile and TimescaleDB
+- Files changed:
+  - `weather_edge/Dockerfile` - Multi-stage build (builder with hexpm/elixir image + runner with debian:bookworm-slim)
+  - `weather_edge/docker-compose.yml` - Two services: app (Elixir) and db (timescale/timescaledb:latest-pg16), persistent volume, port 4000/5432
+  - `weather_edge/entrypoint.sh` - Runs migrations then starts server
+  - `weather_edge/lib/weather_edge/release.ex` - Release module with migrate/0 for production migrations
+  - `weather_edge/.dockerignore` - Excludes _build, deps, .env, node_modules
+- **Learnings for future iterations:**
+  - Docker CMD with `&&` doesn't work for chaining commands; use an entrypoint script instead
+  - WeatherEdge.Release module needed for running migrations in production releases
+  - The docker-compose.yml overrides DATABASE_URL in environment to point to the `db` service
+---
+
+## 2026-03-06 - US-003
+- Implemented: Stations table migration and Station Ecto schema
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306155813_create_stations.exs` - Migration with all columns, unique index on code
+  - `weather_edge/lib/weather_edge/stations/station.ex` - Ecto schema with changeset validation (required fields, uppercase code format, unique constraint)
+- **Learnings for future iterations:**
+  - Schemas go in `lib/weather_edge/<context>/<schema>.ex` pattern (e.g., `stations/station.ex`)
+  - Use `:string` with `size:` option in migrations for varchar columns
+  - Use `timestamps(type: :timestamptz)` in migrations and `timestamps(type: :utc_datetime)` in schemas
+  - The working directory for CLI commands is already `weather_edge/`, not repo root
+---
+
+## 2026-03-06 - US-004
+- Implemented: MarketCluster table migration and Ecto schema
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306170000_create_market_clusters.exs` - Migration with all columns, unique index on event_id, composite index on (station_code, target_date), partial index on resolved=false
+  - `weather_edge/lib/weather_edge/markets/market_cluster.ex` - Ecto schema with belongs_to :station (foreign_key: :station_code, references: :code)
+- **Learnings for future iterations:**
+  - belongs_to with a non-standard foreign key requires `foreign_key:`, `references:`, and `type:` options
+  - Markets context lives in `lib/weather_edge/markets/`
+  - Partial indexes use `where:` option in `create index` with raw SQL condition
+---
+
+## 2026-03-06 - US-005
+- Implemented: MarketSnapshot hypertable migration and Ecto schema
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306180000_create_market_snapshots.exs` - Migration with composite PK on (id, snapshot_at), create_hypertable call, references market_clusters
+  - `weather_edge/lib/weather_edge/markets/market_snapshot.ex` - Ecto schema with belongs_to :market_cluster, changeset with required fields validation
+- **Learnings for future iterations:**
+  - Hypertables need `up/down` instead of `change` because `create_hypertable` is not reversible by Ecto
+  - Composite primary keys require `primary_key: false` on the table and columns, then a manual ALTER TABLE ADD PRIMARY KEY
+  - TimescaleDB requires the partitioning column (snapshot_at) to be part of the primary key
+  - Hypertable schemas live alongside related schemas in the same context (e.g., `markets/market_snapshot.ex`)
+---
+
+## 2026-03-06 - US-006
+- Implemented: ForecastSnapshot hypertable migration and Ecto schema
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306190000_create_forecast_snapshots.exs` - Migration with composite PK on (id, fetched_at), references stations(code), create_hypertable call
+  - `weather_edge/lib/weather_edge/forecasts/forecast_snapshot.ex` - Ecto schema with belongs_to :station (foreign_key: :station_code, references: :code), jsonb hourly_temps field
+- **Learnings for future iterations:**
+  - Forecasts context lives in `lib/weather_edge/forecasts/`
+  - For jsonb columns, use `:map` type in Ecto schema
+  - The `forecasts/` directory was new and needed to be created
+---
+
+## 2026-03-06 - US-007
+- Implemented: Positions and Orders tables migration and Ecto schemas
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306200000_create_positions_and_orders.exs` - Single migration creating both tables with all columns, indexes, and foreign keys
+  - `weather_edge/lib/weather_edge/trading/position.ex` - Position schema with belongs_to station/market_cluster, has_many orders
+  - `weather_edge/lib/weather_edge/trading/order.ex` - Order schema with belongs_to position
+- **Learnings for future iterations:**
+  - Trading context lives in `lib/weather_edge/trading/`
+  - Closely related tables (positions + orders) can share a single migration file
+  - Git working directory is `weather_edge/` so use relative paths from there for git commands
+---
+
+## 2026-03-06 - US-008
+- Implemented: Signals hypertable and ForecastAccuracy table migrations and schemas
+- Files changed:
+  - `weather_edge/priv/repo/migrations/20260306210000_create_signals_and_forecast_accuracy.exs` - Single migration creating both tables: signals hypertable with composite PK (id, computed_at) and forecast_accuracy with unique constraint on (station_code, target_date)
+  - `weather_edge/lib/weather_edge/signals/signal.ex` - Signal schema with belongs_to market_cluster, station_code field, changeset with validations
+  - `weather_edge/lib/weather_edge/calibration/accuracy.ex` - Accuracy schema with belongs_to station (foreign_key: station_code, references: code), timestamps(updated_at: false)
+- **Learnings for future iterations:**
+  - Signals context lives in `lib/weather_edge/signals/`
+  - Calibration context lives in `lib/weather_edge/calibration/`
+  - For tables with only inserted_at (no updated_at), use `timestamps(type: :utc_datetime, updated_at: false)` in schema and `timestamps(type: :timestamptz, updated_at: false)` in migration
+  - forecast_accuracy uses standard bigserial PK (not a hypertable) unlike signals which is a hypertable
+---
+
+## 2026-03-06 - US-009
+- Implemented: Aviation Weather METAR client using Req
+- Files changed:
+  - `weather_edge/lib/weather_edge/forecasts/metar_client.ex` - MetarClient with validate_station/1 and get_current_conditions/1, JSON format parsing, humidity calculation via Magnus formula
+- **Learnings for future iterations:**
+  - Aviation Weather METAR API returns JSON when `format: "json"` param is passed; returns array of METAR objects
+  - METAR JSON fields: icaoId, name, lat, lon, temp, dewp, wspd, wdir, rawOb, reportTime
+  - Empty array response means invalid ICAO code
+  - metar_base_url is configured in `:forecasts` config key
+  - Req.TransportError with reason :timeout handles timeouts
+---
+
+## 2026-03-06 - US-010
+- Implemented: Stations context with CRUD operations and METAR validation
+- Files changed:
+  - `weather_edge/lib/weather_edge/stations.ex` - Context module with create_station/1, update_station/2, delete_station/1, list_stations/0, get_station/1, get_by_code/1
+- **Learnings for future iterations:**
+  - Context modules go in `lib/weather_edge/<context_name>.ex` (not inside the context subdirectory)
+  - PubSub is `WeatherEdge.PubSub`, already in supervision tree
+  - create_station/1 accepts both string and atom key maps (handles `%{"code" => ...}` and `%{code: ...}`)
+  - MetarClient.validate_station/1 returns `{:ok, %{code:, city:, latitude:, longitude:, country:}}` on success
+  - Slug pattern generation: downcase city, remove non-alphanumeric, replace spaces with hyphens, wrap in template
+---
+
+## 2026-03-06 - US-011
+- Implemented: Gamma API client for Polymarket event discovery
+- Files changed:
+  - `weather_edge/lib/weather_edge/markets/gamma_client.ex` - GammaClient with get_events/1, search_events/1, get_event_by_slug/1
+- **Learnings for future iterations:**
+  - Gamma API base URL: `https://gamma-api.polymarket.com`
+  - Events endpoint: `/events` with query params for filtering (active, closed, limit, offset, slug, tag)
+  - GammaClient lives in markets context alongside MarketCluster and MarketSnapshot
+  - Configurable base URL via `:gamma_api_url` app env key
+  - Rate limiting returns 429 status, handled as `{:error, :rate_limited}`
+---
+
+## 2026-03-06 - US-012
+- Implemented: Event parser and Markets context
+- Files changed:
+  - `weather_edge/lib/weather_edge/markets/event_parser.ex` - EventParser with parse_event/1, extracts event_id, slug, title, target_date, station_code, outcomes from Gamma API JSON
+  - `weather_edge/lib/weather_edge/markets.ex` - Markets context with create_market_cluster/1, get_active_clusters/0, get_clusters_for_station/1, mark_resolved/2
+- **Learnings for future iterations:**
+  - Gamma API event JSON has `outcomePrices` as a JSON-encoded string (e.g., `"[\"0.5\",\"0.5\"]"`), needs Jason.decode then Float.parse
+  - `clobTokenIds` can be a JSON-encoded string or list depending on API version
+  - Temperature degree extraction from questions uses regex: `(\d+)\s*degrees?` pattern, edge buckets have "or below"/"or higher" suffixes
+  - Context modules go in `lib/weather_edge/<context_name>.ex` (confirmed from Stations pattern)
+  - Markets context follows same pattern as Stations: Ecto.Query imports, Repo alias, simple CRUD functions
+---
+
+## 2026-03-06 - US-013
+- Implemented: Open-Meteo multi-model forecast client and Forecasts context
+- Files changed:
+  - `weather_edge/lib/weather_edge/forecasts/open_meteo_client.ex` - OpenMeteoClient with fetch_all_models/3 (single API call for all models) and extract_daily_max/2 (extracts daily max temp per model from hourly data)
+  - `weather_edge/lib/weather_edge/forecasts.ex` - Forecasts context with store_snapshot/1, list_snapshots/2, latest_snapshots/2
+- **Learnings for future iterations:**
+  - Open-Meteo API returns hourly data keyed by `hourly_<model_name>` with `time` and `temperature_2m` arrays
+  - Pass `models` param as comma-separated string, `timezone: "UTC"` for consistent timestamps
+  - extract_daily_max filters hourly timestamps by date prefix matching (e.g., "2026-03-06T")
+  - Forecasts context follows same pattern as Stations/Markets: Ecto.Query imports, Repo alias
+---
+
+## 2026-03-06 - US-014
+- Implemented: Gaussian kernel smoothing module for temperature probability distributions
+- Files changed:
+  - `weather_edge/lib/weather_edge/probability/gaussian.ex` - Gaussian module with apply_kernel/2 (smoothing) and sigma/1 (days-out-based sigma selection)
+- **Learnings for future iterations:**
+  - Probability context lives in `lib/weather_edge/probability/`
+  - Gaussian kernel formula: weight = exp(-(x-mu)^2 / (2*sigma^2))
+  - apply_kernel/2 iterates all temp pairs, applies weights from source to target, then normalizes to sum to 1.0
+  - Erlang :math module provides exp/1 and pow/2 for math operations
+---
+
+## 2026-03-06 - US-015
+- Implemented: Probability engine combining multi-model forecasts into temperature probability distributions
+- Files changed:
+  - `weather_edge/lib/weather_edge/probability/distribution.ex` - Distribution struct with top_outcome/0, top_n/1, probability_for/1 helpers
+  - `weather_edge/lib/weather_edge/probability/engine.ex` - Engine module with compute_distribution/2 that fetches latest forecasts, builds empirical distribution, applies Gaussian smoothing, collapses tails into edge buckets, and normalizes
+- **Learnings for future iterations:**
+  - Engine uses Forecasts.latest_snapshots/2 to get one snapshot per model
+  - Edge bucket labels follow pattern: "26C or below" / "34C or higher" with configurable bounds via opts
+  - Distribution probabilities use string keys like "28C" for labeled outcomes
+  - Gaussian sigma is selected based on days_out from target_date using Gaussian.sigma/1
+---
+
+## 2026-03-06 - US-016
+- Implemented: CLOB API client (read-only) for Polymarket's CLOB endpoints
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/clob_client.ex` - ClobClient with get_price/2, get_orderbook/1, get_market/1
+- **Learnings for future iterations:**
+  - CLOB API base URL: `https://clob.polymarket.com`
+  - ClobClient lives in trading context alongside Position and Order schemas
+  - Price endpoint returns `{"price": "0.55"}` as string, needs Float.parse
+  - Orderbook endpoint returns `{"bids": [...], "asks": [...]}` with string price/size values
+  - Market info endpoint: `/markets/:condition_id`
+  - Configurable base URL via `:clob_api_url` app env key
+---
+
+## 2026-03-06 - US-017
+- Implemented: Data API client for Polymarket positions, activity, and USDC balance
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/data_client.ex` - DataClient with get_positions/1, get_activity/1, get_balance/1
+- **Learnings for future iterations:**
+  - Data API base URL: `https://data-api.polymarket.com`
+  - DataClient lives in trading context alongside ClobClient
+  - Wallet address is loaded from `:weather_edge, :polymarket, :wallet_address` config
+  - All functions accept optional `wallet_address:` keyword to override the config value
+  - Configurable base URL via `:data_api_url` app env key
+  - Balance endpoint returns balance as string, needs Float.parse (same pattern as ClobClient prices)
+---
+
+## 2026-03-06 - US-018
+- Implemented: Signal detector and alerter for mispricing detection
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/detector.ex` - Detector with detect_mispricings/2, edge calculation (YES/NO), alert levels (opportunity/strong/extreme/safe_no), structural mispricing flag
+  - `weather_edge/lib/weather_edge/signals/alerter.ex` - Alerter with broadcast_signals/2, PubSub broadcasts to "station:CODE:signal" topic
+  - `weather_edge/lib/weather_edge/signals.ex` - Signals context with create_signal/1, store_signals/3, list_signals/1, list_signals_for_cluster/2
+- **Learnings for future iterations:**
+  - MarketCluster outcomes is a list of maps with string keys: "outcome_label", "yes_price", "no_price", "clob_token_ids", "volume", "liquidity"
+  - Distribution.probability_for/2 returns 0.0 for unknown outcomes, so Detector handles missing labels gracefully
+  - Edge calculation: edge_yes = model_prob - yes_price, edge_no = (1 - model_prob) - no_price; pick the side with greater positive edge
+  - Alert level thresholds: opportunity (edge >= 0.08, liquidity > $20), strong (>= 0.15, liquidity > $20), extreme (>= 0.25), safe_no (model_prob < 0.05, no_price <= 0.92)
+---
+
+## 2026-03-06 - US-019
+- Implemented: EIP-712 and HMAC authentication module for Polymarket CLOB API
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/auth.ex` - Auth module with sign_order/1 (EIP-712) and sign_request/3 (HMAC-SHA256)
+- **Learnings for future iterations:**
+  - EIP-712 signing: "\x19\x01" prefix + domain separator + struct hash, then keccak256 the whole thing, then secp256k1 sign
+  - Polymarket CTF Exchange address on Polygon: `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E`
+  - EIP-712 domain: name="Polymarket CTF Exchange", version="1", chainId=137
+  - L2 HMAC auth message format: timestamp + "\n" + METHOD + "\n" + path + "\n" + body
+  - api_secret is Base64-encoded, must decode before using as HMAC key
+  - ExSecp256k1.sign/2 returns `{:ok, {r, s, v}}` where v may need +27 adjustment for Ethereum convention
+  - ExKeccak.hash_256/1 for keccak256 hashing
+  - Auth headers: POLY-ADDRESS, POLY-SIGNATURE, POLY-TIMESTAMP, POLY-NONCE, POLY-API-KEY, POLY-PASSPHRASE
+---
+
+## 2026-03-06 - US-020
+- Implemented: CLOB authenticated endpoints for order placement, cancellation, and listing open orders
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/clob_client.ex` - Extended with place_order/5 (EIP-712 signed + L2 auth), cancel_order/1 (L2 auth DELETE), get_open_orders/0 (L2 auth GET), build_order_struct helper
+- **Learnings for future iterations:**
+  - Polymarket order amounts use 6 decimal precision (multiply by 1_000_000 for USDC/share amounts)
+  - BUY orders: makerAmount = price * size * 1e6 (USDC paid), takerAmount = size * 1e6 (shares received)
+  - SELL orders: makerAmount = size * 1e6 (shares given), takerAmount = price * size * 1e6 (USDC received)
+  - Order struct for CLOB API uses camelCase keys (tokenId, makerAmount, etc.) while internal struct uses snake_case
+  - cancel_order uses DELETE method with JSON body (not URL param), body is `{"orderID": "..."}`
+  - Auth.sign_request body param should match the actual request body for HMAC to verify correctly
+---
+
+## 2026-03-06 - US-021
+- Implemented: Order manager with safety guards for order lifecycle orchestration
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/order_manager.ex` - OrderManager with place_buy_order/3, mark_filled/1, mark_failed/1, balance validation, duplicate detection, rate limiting, retry logic, position management
+- **Learnings for future iterations:**
+  - `:persistent_term` works well for simple rate limiting (key-value timestamp tracking per station)
+  - Order flow: validate balance -> check duplicates -> check rate limit -> place via ClobClient -> create Order record -> create/update Position
+  - Retry logic: on first failure, sleep `order_retry_delay_ms` then retry once; on second failure, record as failed
+  - Fill detection: schedule async Task to check if order is still in open orders after 5 seconds
+  - Trading safety config keys: `min_reserve_usdc`, `max_orders_per_minute`, `max_position_per_event`, `order_retry_delay_ms`
+---
+
+## 2026-03-06 - US-022
+- Implemented: Position tracker with sell/hold recommendations
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/position_tracker.ex` - PositionTracker with update_position/1 (fetches CLOB price, calculates unrealized P&L), generate_recommendation/1 (recommendation logic based on P&L%, model probability, days until resolution), sell_position/1 (places SELL order via ClobClient, updates position to "sold")
+- **Learnings for future iterations:**
+  - PositionTracker uses ClobClient.get_price(token_id, "sell") for current price (sell side = what you'd get if selling)
+  - Recommendation logic is a priority-ordered cond: SELL NOW > CONSIDER SELLING > HOLD > CUT LOSS > HOLD TO RESOLUTION > MONITORING
+  - P&L percentage calculated from unrealized_pnl / total_cost_usdc * 100
+  - sell_position/1 creates a SELL Order record and updates Position with close_price, realized_pnl, closed_at
+  - Engine.compute_distribution returns {:error, :no_forecasts} if no snapshots exist for station/date
+---
+
+## 2026-03-06 - US-023
+- Implemented: Event scanner worker that polls Gamma API for new temperature events
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/event_scanner_worker.ex` - EventScannerWorker with Oban.Worker, scans for monitoring_enabled stations, matches events by slug_pattern or city name, creates MarketCluster records, broadcasts via PubSub, enqueues AutoBuyerWorker
+  - `weather_edge/lib/weather_edge/workers/auto_buyer_worker.ex` - Stub AutoBuyerWorker (placeholder for US-024)
+  - `weather_edge/lib/weather_edge/markets.ex` - Added get_by_event_id/1 to check for duplicate events
+  - `weather_edge/prd.json` - Marked US-023 as passes: true
+- **Learnings for future iterations:**
+  - Workers live in `lib/weather_edge/workers/` directory
+  - Oban.Worker `perform/1` must return `:ok` or `{:ok, _}` for success
+  - When a worker references another worker that doesn't exist yet, create a stub with `use Oban.Worker` so compilation passes
+  - Station matching: use slug_pattern with wildcard-to-regex conversion, fallback to city name substring match in title/slug
+  - PubSub topic for new events: `"station:CODE:new_event"` with event `{:new_event, station_code, cluster}`
+---
+
+## 2026-03-06 - US-024
+- Implemented: Auto-buyer worker that buys the most likely temperature outcome when a new event opens
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/auto_buyer_worker.ex` - Full AutoBuyerWorker: fetches forecasts via OpenMeteoClient, stores snapshots, runs Probability.Engine, checks YES price vs max_buy_price, places buy via OrderManager, checks secondary opportunities, broadcasts via PubSub
+- **Learnings for future iterations:**
+  - AutoBuyerWorker fetches fresh forecasts before computing distribution (can't rely on existing snapshots for brand-new events)
+  - MarketCluster outcomes is a list of maps with string keys: "outcome_label", "clob_token_ids", etc.
+  - `clob_token_ids` in outcome may be a list; use `List.wrap() |> List.first()` to safely extract the token ID
+  - Secondary opportunities: check all outcomes where model_prob > 20% and YES price <= max_buy_price (alert only, no auto-buy)
+  - PubSub topics for auto-buyer: `"trading:STATION_CODE"` with events `:auto_buy_executed`, `:auto_buy_skipped`, `:secondary_opportunity`
+---
+
+## 2026-03-06 - US-025
+- Implemented: Forecast refresh worker that refreshes multi-model forecasts every 15 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/forecast_refresh_worker.ex` - ForecastRefreshWorker with Oban.Worker queue: :forecasts, queries stations with active clusters, fetches OpenMeteo forecasts for all target dates, stores snapshots, broadcasts updates
+  - `weather_edge/lib/weather_edge/markets.ex` - Added station_codes_with_active_clusters/0 and active_clusters_for_station/1
+- **Learnings for future iterations:**
+  - Workers that operate on stations with active markets should query Markets.station_codes_with_active_clusters/0 rather than listing all stations
+  - Single OpenMeteo API call per station serves all target dates (extract_daily_max filters by date from same response)
+  - PubSub topic for forecast updates: `"station:CODE:forecast_update"` with event `:forecast_updated`
+  - Partial failure handling: each station is processed independently, errors are logged but don't block other stations
+---
+
+## 2026-03-06 - US-026
+- Implemented: Mispricing detection worker that runs every 5 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/mispricing_worker.ex` - MispricingWorker with Oban.Worker queue: :signals, iterates active clusters, runs Probability.Engine, passes to Detector, stores signals, broadcasts via Alerter
+- **Learnings for future iterations:**
+  - MispricingWorker follows same pattern as ForecastRefreshWorker: iterate entities, process each independently, rescue errors per-entity
+  - Detector.detect_mispricings returns `{:ok, signals, flags}` - signals may be empty list when no mispricings detected
+  - Engine.compute_distribution returns `{:error, :no_forecasts}` for clusters without forecast data yet (e.g., just-created events)
+---
+
+## 2026-03-06 - US-027
+- Implemented: Price snapshot worker that captures YES/NO prices every 5 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/price_snapshot_worker.ex` - PriceSnapshotWorker with Oban.Worker queue: :signals, queries tracked clusters (active + with open positions), fetches prices via ClobClient, stores MarketSnapshot records
+- **Learnings for future iterations:**
+  - Tracked markets = union of active (unresolved) clusters and clusters with open positions
+  - ClobClient.get_price/2 takes token_id and side ("buy"/"sell") - use "buy" for YES price, "sell" for NO price
+  - MarketSnapshot schema uses `snapshot_at` (not `inserted_at`) for the timestamp
+  - Outcomes in MarketCluster is a list of maps with string keys; `clob_token_ids` may be a list, use `List.wrap |> List.first`
+---
+
+## 2026-03-06 - US-028
+- Implemented: Position monitor worker that monitors open positions every 10 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/position_monitor_worker.ex` - PositionMonitorWorker with Oban.Worker queue: :signals, queries open positions, calls PositionTracker.update_position/1 and generate_recommendation/1, broadcasts via PubSub
+- **Learnings for future iterations:**
+  - PositionTracker.update_position/1 returns `{:ok, position}` with updated current_price and unrealized_pnl
+  - PositionTracker.generate_recommendation/1 returns `{:ok, position}` with updated recommendation field
+  - PubSub topic for portfolio updates: `"portfolio:position_update"` with event `{:position_updated, position}`
+  - Worker follows same error-handling pattern: rescue per-entity errors, log and continue
+---
+
+## 2026-03-06 - US-029
+- Implemented: Balance worker that refreshes USDC balance every 5 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/balance_worker.ex` - BalanceWorker with Oban.Worker queue: :trading, fetches balance via DataClient, broadcasts to PubSub
+- **Learnings for future iterations:**
+  - Simplest worker pattern: single API call + PubSub broadcast, always return :ok even on error (just log warning)
+  - PubSub topic for balance: `"portfolio:balance_update"` with event `{:balance_updated, balance}`
+  - Cron entry already existed in config.exs from US-001 scaffold
+---
+
+## 2026-03-06 - US-030
+- Implemented: Resolution worker that processes expired market clusters daily
+- Files changed:
+  - `weather_edge/lib/weather_edge/forecasts/wunderground_client.ex` - WundergroundClient with get_actual_max_temp/2, parses Weather Underground history page HTML to extract max temperature (F->C conversion)
+  - `weather_edge/lib/weather_edge/workers/resolution_worker.ex` - ResolutionWorker with Oban.Worker queue: :cleanup, queries unresolved clusters with target_date < today, fetches actual temp, marks resolved, finalizes position P&L
+- **Learnings for future iterations:**
+  - Weather Underground history URL pattern: `https://www.wunderground.com/history/daily/{STATION_CODE}/date/{YYYY-MM-DD}`
+  - WU page embeds temp data in multiple formats: HTML table with "Max Temperature" row, JSON `tempHigh`, or `maxTempAvg` fields
+  - Temperature conversion from F to C: `round((temp_f - 32) * 5 / 9)`
+  - Position resolution: winner (outcome matches actual temp + side=YES) gets 1.0 per token; loser gets 0.0
+  - determine_winning_outcome handles edge buckets ("26C or below", "34C or higher") and exact degree labels ("28C")
+  - Cron entry for ResolutionWorker already existed in config.exs from US-001: `"0 23 * * *"`
+---
+
+## 2026-03-06 - US-031
+- Implemented: Calibration system with Resolver and BiasTracker modules
+- Files changed:
+  - `weather_edge/lib/weather_edge/calibration/resolver.ex` - Resolver with process_resolution/2: computes predicted distribution, per-model errors, resolution_correct flag, auto_buy outcome/pnl, stores ForecastAccuracy record
+  - `weather_edge/lib/weather_edge/calibration/bias_tracker.ex` - BiasTracker with stats_for_station/1 and stats_for_model/2: computes mean error, MAE, hit rate per station/model
+  - `weather_edge/lib/weather_edge/workers/resolution_worker.ex` - Added process_calibration/2 call after position resolution
+- **Learnings for future iterations:**
+  - Resolver is called from ResolutionWorker after positions are resolved (order matters: positions first, then calibration)
+  - model_errors JSONB stores per-model data with string keys ("error", "absolute_error", "predicted") since JSON serialization converts atoms
+  - BiasTracker queries ForecastAccuracy records and aggregates; model_errors map values have string keys from JSON
+  - resolution_correct checks if Distribution.top_outcome matches actual temp (handles edge bucket labels)
+  - auto_buy_outcome is determined from Position records: "sold_early" if any sold, "win" if positive pnl, "loss" otherwise
+---
+
+## 2026-03-06 - US-032
+- Implemented: PubSubHelper module centralizing all PubSub topics and broadcast/subscribe functions
+- Files changed:
+  - `weather_edge/lib/weather_edge/pub_sub_helper.ex` - New module with topic functions (station_new_event, station_forecast_update, station_price_update, station_auto_buy, station_signal, stations, portfolio_balance_update, portfolio_position_update) and broadcast/subscribe wrappers
+  - `weather_edge/lib/weather_edge/stations.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/event_scanner_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/auto_buyer_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/forecast_refresh_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/balance_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/position_monitor_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/signals/alerter.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/trading/order_manager.ex` - Replaced raw PubSub calls with PubSubHelper
+- **Learnings for future iterations:**
+  - All PubSub usage now goes through `WeatherEdge.PubSubHelper` - use `PubSubHelper.broadcast/2` and `PubSubHelper.subscribe/1`
+  - Topic functions: `station_new_event(code)`, `station_forecast_update(code)`, `station_price_update(code)`, `station_auto_buy(code)`, `station_signal(code)`, `stations()`, `portfolio_balance_update()`, `portfolio_position_update()`
+  - The "trading:CODE" topic is accessed via `station_auto_buy(code)` since it's used for auto-buy, order placement, and general trading events
+---
+
+## 2026-03-06 - US-033
+- Implemented: Router and dashboard LiveView skeleton
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - DashboardLive with mount (loads stations, clusters, positions), PubSub subscriptions for all topics, handle_info for station/balance/position/event updates, basic render with header, station cards, signal feed, portfolio summary placeholders
+  - `weather_edge/lib/weather_edge_web/live/station_detail_live.ex` - StationDetailLive at /stations/:code/events/:event_id with mount (loads station + cluster), PubSub subscriptions, placeholder sections for distribution, model breakdown, orderbook, METAR, action buttons
+  - `weather_edge/lib/weather_edge_web/router.ex` - Replaced PageController route with `live "/", DashboardLive` and `live "/stations/:code/events/:event_id", StationDetailLive`
+  - `weather_edge/lib/weather_edge_web/components/layouts/app.html.heex` - Simplified layout, removed default Phoenix header, widened max-width to 5xl
+- **Learnings for future iterations:**
+  - LiveView modules go in `lib/weather_edge_web/live/` using `use WeatherEdgeWeb, :live_view`
+  - `WeatherEdgeWeb` already defines `:live_view` macro with layout and html_helpers
+  - DashboardLive queries open positions directly via Ecto (no Trading context function exists for this yet)
+  - PubSub subscription must happen inside `if connected?(socket)` guard to avoid subscribing during static render
+  - App layout at `components/layouts/app.html.heex` - `@inner_content` renders the LiveView content
+---
+
+## 2026-03-06 - US-034
+- Implemented: Header function component with balance, wallet address, Add Station button, and Settings link
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/header_component.ex` - New HeaderComponent with `dashboard_header/1` function component displaying title, USDC balance, truncated wallet address, Add Station button, Settings link
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Replaced inline header with `<.dashboard_header>` component, added wallet_address to assigns from config
+- **Learnings for future iterations:**
+  - CoreComponents already defines a `header/1` function - avoid naming conflicts by using a prefixed name like `dashboard_header/1`
+  - Custom components go in `lib/weather_edge_web/components/` as separate modules under `WeatherEdgeWeb.Components.*`
+  - Import component modules in LiveViews with `import WeatherEdgeWeb.Components.HeaderComponent`
+  - Wallet address is read from `Application.get_env(:weather_edge, :polymarket)[:wallet_address]`
+---
+
+## 2026-03-06 - US-035
+- Implemented: Add Station modal component with ICAO code validation and two-step flow (input -> confirm)
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/add_station_modal_component.ex` - New AddStationModalComponent with `add_station_modal/1` function component, two-step UI (input form with spinner, then confirm view with station details)
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Added modal state assigns, event handlers (validate_station, confirm_add_station, reset_add_station, close_add_station_modal), async METAR validation via handle_info
+  - `weather_edge/assets/js/app.js` - Added UppercaseInput JS hook for auto-uppercasing ICAO code input
+- **Learnings for future iterations:**
+  - CoreComponents already has a `modal/1` component with show/hide JS animations, X button, click-away, and escape key support
+  - Use `on_cancel` attr on `<.modal>` to push a LiveView event when modal is closed (e.g., `JS.push("close_add_station_modal")`)
+  - For async operations in LiveView (like API calls), use `send(self(), msg)` to avoid blocking the event handler, then process in `handle_info`
+  - JS hooks are defined in `assets/js/app.js` as a `Hooks` object passed to `LiveSocket` constructor
+  - `phx-hook="HookName"` attribute on an element connects it to the corresponding JS hook
+---
+
+## 2026-03-06 - US-036
+- Implemented: Station card component with monitoring/auto-buy toggles, inline settings inputs, balance display, event listing
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/station_card_component.ex` - New StationCardComponent with `station_card/1` function component: toggle buttons for monitoring/auto-buy, inline number inputs for max_buy_price/buy_amount_usdc, balance display, slug_pattern preview, active event list with View Details links
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Added toggle_monitoring, toggle_auto_buy, update_station_settings event handlers; replaced inline station HTML with `<.station_card>` component; added helper functions for toggle and float parsing
+- **Learnings for future iterations:**
+  - Toggle buttons use CSS classes for visual state (translate-x-4 for on, translate-x-0 for off) with bg color changes
+  - `phx-change` on form with `phx-debounce="500"` works well for inline number inputs that auto-save
+  - Station updates via Stations context automatically broadcast PubSub events, so UI updates reactively
+  - Component imports go at the top of LiveView modules alongside other component imports
+---
+
+## 2026-03-06 - US-037
+- Implemented: Event card component showing position, P&L, forecast consensus, recommendation, and action buttons
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/event_card_component.ex` - New EventCardComponent with event_card/1 function component: target date with days-until-resolution, position details (outcome, tokens, buy/current price, P&L%), color-coded P&L, recommendation text, SELL/HOLD buttons, auto-bought indicator, top 2 outcomes from cluster
+  - `weather_edge/lib/weather_edge_web/components/station_card_component.ex` - Added positions_by_cluster attr, replaced inline event HTML with `<.event_card>` component, imported EventCardComponent
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Added positions_by_cluster assign (indexed by market_cluster_id), passed to station_card, updated position_updated handler to sync both positions list and positions_by_cluster map
+- **Learnings for future iterations:**
+  - positions_by_cluster map (keyed by market_cluster_id) is more efficient for lookup than scanning a list per cluster
+  - Calendar.strftime/2 is available in Elixir for date formatting (e.g., "%b %-d" for "Mar 6")
+  - Component composition: EventCardComponent is imported in StationCardComponent, not in DashboardLive
+  - Date.diff/2 with Date.utc_today() gives days until resolution
+---
+
+## 2026-03-06 - US-038
+- Implemented: Signal feed component showing real-time mispricing signals and auto-buy events
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/signal_feed_component.ex` - New SignalFeedComponent with `signal_feed/1` function component: chronological signal list (newest first, max 50), color-coded by alert level (yellow=opportunity, orange=strong, red=extreme, green=safe_no), auto-buy events with indigo styling, scrollable container
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Imported SignalFeedComponent, replaced placeholder with `<.signal_feed>`, added handle_info for `:signal_detected` (prepends to signals list) and `:auto_buy_executed` (creates auto-buy signal map)
+- **Learnings for future iterations:**
+  - Signal structs from PubSub have atom keys (e.g., `signal.station_code`), but auto-buy events are plain maps constructed in the handler
+  - Use pattern matching on both `%{key: val}` and `%Module{key: val}` for component helpers to handle both struct and map signals
+  - `Enum.take(list, 50)` is a simple way to cap the signal feed size
+  - `:erlang.float_to_binary(float, decimals: N)` for formatting floats without pulling in extra deps
+---
+
+## 2026-03-06 - US-039
+- Implemented: Portfolio summary component showing open positions, invested amount, current value, unrealized P&L, today's realized, and total realized P&L
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/portfolio_summary_component.ex` - New PortfolioSummaryComponent with `portfolio_summary/1` function component: computes all metrics from positions list, color-coded P&L values, responsive 6-column grid
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Imported PortfolioSummaryComponent, replaced placeholder with `<.portfolio_summary>`, changed to load all positions (not just open) for realized P&L calculations, removed unused Ecto.Query import
+- **Learnings for future iterations:**
+  - Portfolio metrics are computed in the component from the positions list (no separate context query needed)
+  - Loading all positions (not just open) is required for realized P&L calculations
+  - `abs/1` is a kernel function available in HEEx templates for absolute value
+  - Color-coded P&L: green for positive, red for negative, zinc for zero
+---
+
+## 2026-03-06 - US-040
+- Implemented: Station detail LiveView with all data sections and real-time updates
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/live/station_detail_live.ex` - Full implementation replacing placeholders: temperature distribution table (model prob vs market price with bar visualization and edge), model breakdown per-model predicted max temp, market cluster health (YES price sum with deviation warning), orderbook (best bid/ask with spread) for user's position token, current METAR observation (temp/wind/humidity), position info section, SELL POSITION and BUY MORE action buttons, PubSub real-time updates
+- **Learnings for future iterations:**
+  - `send(self(), :load_data)` pattern works well for deferring expensive data loading (API calls, DB queries) after mount
+  - Distribution.top_n/2 returns sorted `[{label, prob}]` tuples - useful for rendering ranked tables
+  - Market cluster outcomes list has string keys ("outcome_label", "yes_price") - use `find_market_price/2` to match distribution labels to market prices
+  - Orderbook is only loaded when a position exists (need a token_id to query)
+  - `:erlang.float_to_binary(float, decimals: N)` is the standard float formatting approach across all components
+---
+
+## 2026-03-06 - US-041
+- Implemented: Tests for probability engine, Gaussian smoothing, and Distribution struct
+- Files changed:
+  - `weather_edge/test/weather_edge/probability/engine_test.exs` - 22 tests covering Gaussian.sigma/1, Gaussian.apply_kernel/2, Distribution helpers (top_outcome, top_n, probability_for), Engine.compute_distribution/3 (DB-backed with 5 model forecasts)
+  - `weather_edge/test/weather_edge_web/controllers/page_controller_test.exs` - Fixed stale scaffold test (route changed to DashboardLive in US-033)
+- **Learnings for future iterations:**
+  - Engine tests require DB (uses Forecasts.latest_snapshots which queries Repo) - use DataCase with Station + ForecastSnapshot inserts
+  - Gaussian kernel only smooths across existing keys in the input map - with a single key, all mass stays at that key
+  - For testing "wider sigma spreads more", use non-uniform input (not uniform, which stays uniform regardless of sigma)
+  - Pre-existing page_controller_test.exs from Phoenix scaffold was stale after US-033 replaced PageController route with DashboardLive
+  - Docker DB needs `.env` file to exist (even with placeholder values) - created from `.env.example`
+---
+
+## 2026-03-06 - US-042
+- Implemented: Tests for signal detector (10 tests) and order manager (7 tests)
+- Files changed:
+  - `weather_edge/test/weather_edge/signals/detector_test.exs` - 10 tests: edge calculation (YES/NO sides), alert level classification (opportunity/strong/extreme), safe NO detection, structural mispricing flag
+  - `weather_edge/test/weather_edge/trading/order_manager_test.exs` - 7 tests: balance check rejection/acceptance/boundary, duplicate order prevention (same event + different event), rate limiting rejection/expiry
+  - `weather_edge/test/support/mock_clients.ex` - MockDataClient and MockClobClient using Process dictionary for per-test configuration
+  - `weather_edge/config/test.exs` - Added mock client config for data_client and clob_client
+  - `weather_edge/lib/weather_edge/trading/order_manager.ex` - Made DataClient/ClobClient configurable via Application.get_env for testability
+  - `weather_edge/lib/weather_edge/markets/market_cluster.ex` - Fixed outcomes field type from `:map` to `{:array, :map}` (bug: was rejecting list of maps in changeset)
+- **Learnings for future iterations:**
+  - MarketCluster outcomes field was `:map` but should be `{:array, :map}` since outcomes is always a list of maps
+  - For testing modules with external HTTP dependencies, use configurable module attributes via `Application.get_env` with mock modules in `test/support/`
+  - `Process.put/get` works well for per-test mock configuration in sync tests (use `async: false`)
+  - `:persistent_term` can be directly manipulated in tests for rate limit testing - use `on_exit` to clean up
+  - Detector tests don't need DB (pure functions) - use `ExUnit.Case` instead of `DataCase`
+---
+
+## 2026-03-06 - US-043
+- What was implemented: Tests for API clients (GammaClient, EventParser, OpenMeteoClient) and DashboardLive
+- Files changed:
+  - `weather_edge/mix.exs` - Added `bypass ~> 2.1` test dependency for HTTP mocking
+  - `weather_edge/test/weather_edge/markets/gamma_client_test.exs` - GammaClient tests (get_events success/429/500, get_event_by_slug found/not_found) + EventParser tests (parse_event extracts event_id/slug/title/target_date, outcome parsing with prices/token IDs, edge buckets 'or below'/'or higher', invalid format, list clobTokenIds)
+  - `weather_edge/test/weather_edge/forecasts/open_meteo_client_test.exs` - OpenMeteoClient tests (extract_daily_max with single/multiple models, partial failures, multi-day filtering, empty response; fetch_all_models success/500)
+  - `weather_edge/test/weather_edge_web/live/dashboard_live_test.exs` - DashboardLive tests (renders empty state, station cards, multiple stations; PubSub balance/station_created/signal updates; add station modal open/close)
+- **Learnings for future iterations:**
+  - Req retries on 429 and 500 responses by default - use `Bypass.stub` instead of `Bypass.expect_once` for error status tests
+  - GammaClient has configurable `gamma_api_url` via `Application.get_env` - set in test setup to point to Bypass
+  - OpenMeteoClient reads base URL from `Application.get_env(:weather_edge, :forecasts)[:open_meteo_base_url]`
+  - Phoenix CoreComponents modal close button uses JS commands, not simple phx-click - use `render_hook(view, "close_add_station_modal", %{})` to test close
+  - LiveView tests: use `element("button", "text")` to find buttons by visible text, more reliable than attribute selectors
+---

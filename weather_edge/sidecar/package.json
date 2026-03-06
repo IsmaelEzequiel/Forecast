@@ -1,0 +1,13 @@
+{
+  "name": "weather-edge-sidecar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "^4.0.0",
+    "ethers": "^5.7.2"
+  }
+}

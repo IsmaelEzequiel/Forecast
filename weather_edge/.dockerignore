@@ -1,0 +1,9 @@
+_build/
+deps/
+.elixir_ls/
+.env
+*.ez
+node_modules/
+sidecar/node_modules/
+.git/
+DEPLOY.md
