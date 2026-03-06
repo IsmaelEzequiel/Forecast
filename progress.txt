@@ -345,3 +345,25 @@
   - Detector.detect_mispricings returns `{:ok, signals, flags}` - signals may be empty list when no mispricings detected
   - Engine.compute_distribution returns `{:error, :no_forecasts}` for clusters without forecast data yet (e.g., just-created events)
 ---
+
+## 2026-03-06 - US-027
+- Implemented: Price snapshot worker that captures YES/NO prices every 5 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/price_snapshot_worker.ex` - PriceSnapshotWorker with Oban.Worker queue: :signals, queries tracked clusters (active + with open positions), fetches prices via ClobClient, stores MarketSnapshot records
+- **Learnings for future iterations:**
+  - Tracked markets = union of active (unresolved) clusters and clusters with open positions
+  - ClobClient.get_price/2 takes token_id and side ("buy"/"sell") - use "buy" for YES price, "sell" for NO price
+  - MarketSnapshot schema uses `snapshot_at` (not `inserted_at`) for the timestamp
+  - Outcomes in MarketCluster is a list of maps with string keys; `clob_token_ids` may be a list, use `List.wrap |> List.first`
+---
+
+## 2026-03-06 - US-028
+- Implemented: Position monitor worker that monitors open positions every 10 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/position_monitor_worker.ex` - PositionMonitorWorker with Oban.Worker queue: :signals, queries open positions, calls PositionTracker.update_position/1 and generate_recommendation/1, broadcasts via PubSub
+- **Learnings for future iterations:**
+  - PositionTracker.update_position/1 returns `{:ok, position}` with updated current_price and unrealized_pnl
+  - PositionTracker.generate_recommendation/1 returns `{:ok, position}` with updated recommendation field
+  - PubSub topic for portfolio updates: `"portfolio:position_update"` with event `{:position_updated, position}`
+  - Worker follows same error-handling pattern: rescue per-entity errors, log and continue
+---
