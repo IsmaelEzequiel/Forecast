@@ -27,6 +27,10 @@ defmodule WeatherEdge.Markets do
     |> Repo.all()
   end
 
+  def get_by_event_id(event_id) do
+    Repo.get_by(MarketCluster, event_id: event_id)
+  end
+
   def mark_resolved(market_cluster_id, resolution_temp) do
     case Repo.get(MarketCluster, market_cluster_id) do
       nil ->

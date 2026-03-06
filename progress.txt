@@ -17,6 +17,8 @@
 - Calibration context lives in `lib/weather_edge/calibration/` (Accuracy schema)
 - Git working directory is `weather_edge/` - use relative paths for git add/commit
 - Probability context lives in `lib/weather_edge/probability/` (Gaussian module)
+- Workers live in `lib/weather_edge/workers/` - use `use Oban.Worker, queue: :queue_name`
+- When referencing a worker that doesn't exist yet, create a stub so compilation passes
 
 ---
 
@@ -293,4 +295,19 @@
   - P&L percentage calculated from unrealized_pnl / total_cost_usdc * 100
   - sell_position/1 creates a SELL Order record and updates Position with close_price, realized_pnl, closed_at
   - Engine.compute_distribution returns {:error, :no_forecasts} if no snapshots exist for station/date
+---
+
+## 2026-03-06 - US-023
+- Implemented: Event scanner worker that polls Gamma API for new temperature events
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/event_scanner_worker.ex` - EventScannerWorker with Oban.Worker, scans for monitoring_enabled stations, matches events by slug_pattern or city name, creates MarketCluster records, broadcasts via PubSub, enqueues AutoBuyerWorker
+  - `weather_edge/lib/weather_edge/workers/auto_buyer_worker.ex` - Stub AutoBuyerWorker (placeholder for US-024)
+  - `weather_edge/lib/weather_edge/markets.ex` - Added get_by_event_id/1 to check for duplicate events
+  - `weather_edge/prd.json` - Marked US-023 as passes: true
+- **Learnings for future iterations:**
+  - Workers live in `lib/weather_edge/workers/` directory
+  - Oban.Worker `perform/1` must return `:ok` or `{:ok, _}` for success
+  - When a worker references another worker that doesn't exist yet, create a stub with `use Oban.Worker` so compilation passes
+  - Station matching: use slug_pattern with wildcard-to-regex conversion, fallback to city name substring match in title/slug
+  - PubSub topic for new events: `"station:CODE:new_event"` with event `{:new_event, station_code, cluster}`
 ---
