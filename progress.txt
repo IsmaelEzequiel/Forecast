@@ -240,3 +240,18 @@
   - Edge calculation: edge_yes = model_prob - yes_price, edge_no = (1 - model_prob) - no_price; pick the side with greater positive edge
   - Alert level thresholds: opportunity (edge >= 0.08, liquidity > $20), strong (>= 0.15, liquidity > $20), extreme (>= 0.25), safe_no (model_prob < 0.05, no_price <= 0.92)
 ---
+
+## 2026-03-06 - US-019
+- Implemented: EIP-712 and HMAC authentication module for Polymarket CLOB API
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/auth.ex` - Auth module with sign_order/1 (EIP-712) and sign_request/3 (HMAC-SHA256)
+- **Learnings for future iterations:**
+  - EIP-712 signing: "\x19\x01" prefix + domain separator + struct hash, then keccak256 the whole thing, then secp256k1 sign
+  - Polymarket CTF Exchange address on Polygon: `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E`
+  - EIP-712 domain: name="Polymarket CTF Exchange", version="1", chainId=137
+  - L2 HMAC auth message format: timestamp + "\n" + METHOD + "\n" + path + "\n" + body
+  - api_secret is Base64-encoded, must decode before using as HMAC key
+  - ExSecp256k1.sign/2 returns `{:ok, {r, s, v}}` where v may need +27 adjustment for Ethereum convention
+  - ExKeccak.hash_256/1 for keccak256 hashing
+  - Auth headers: POLY-ADDRESS, POLY-SIGNATURE, POLY-TIMESTAMP, POLY-NONCE, POLY-API-KEY, POLY-PASSPHRASE
+---
