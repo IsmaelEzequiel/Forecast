@@ -14,6 +14,7 @@
 - Signals context lives in `lib/weather_edge/signals/` (Signal schema)
 - Calibration context lives in `lib/weather_edge/calibration/` (Accuracy schema)
 - Git working directory is `weather_edge/` - use relative paths for git add/commit
+- Probability context lives in `lib/weather_edge/probability/` (Gaussian module)
 
 ---
 
@@ -164,4 +165,52 @@
   - Temperature degree extraction from questions uses regex: `(\d+)\s*degrees?` pattern, edge buckets have "or below"/"or higher" suffixes
   - Context modules go in `lib/weather_edge/<context_name>.ex` (confirmed from Stations pattern)
   - Markets context follows same pattern as Stations: Ecto.Query imports, Repo alias, simple CRUD functions
+---
+
+## 2026-03-06 - US-013
+- Implemented: Open-Meteo multi-model forecast client and Forecasts context
+- Files changed:
+  - `weather_edge/lib/weather_edge/forecasts/open_meteo_client.ex` - OpenMeteoClient with fetch_all_models/3 (single API call for all models) and extract_daily_max/2 (extracts daily max temp per model from hourly data)
+  - `weather_edge/lib/weather_edge/forecasts.ex` - Forecasts context with store_snapshot/1, list_snapshots/2, latest_snapshots/2
+- **Learnings for future iterations:**
+  - Open-Meteo API returns hourly data keyed by `hourly_<model_name>` with `time` and `temperature_2m` arrays
+  - Pass `models` param as comma-separated string, `timezone: "UTC"` for consistent timestamps
+  - extract_daily_max filters hourly timestamps by date prefix matching (e.g., "2026-03-06T")
+  - Forecasts context follows same pattern as Stations/Markets: Ecto.Query imports, Repo alias
+---
+
+## 2026-03-06 - US-014
+- Implemented: Gaussian kernel smoothing module for temperature probability distributions
+- Files changed:
+  - `weather_edge/lib/weather_edge/probability/gaussian.ex` - Gaussian module with apply_kernel/2 (smoothing) and sigma/1 (days-out-based sigma selection)
+- **Learnings for future iterations:**
+  - Probability context lives in `lib/weather_edge/probability/`
+  - Gaussian kernel formula: weight = exp(-(x-mu)^2 / (2*sigma^2))
+  - apply_kernel/2 iterates all temp pairs, applies weights from source to target, then normalizes to sum to 1.0
+  - Erlang :math module provides exp/1 and pow/2 for math operations
+---
+
+## 2026-03-06 - US-015
+- Implemented: Probability engine combining multi-model forecasts into temperature probability distributions
+- Files changed:
+  - `weather_edge/lib/weather_edge/probability/distribution.ex` - Distribution struct with top_outcome/0, top_n/1, probability_for/1 helpers
+  - `weather_edge/lib/weather_edge/probability/engine.ex` - Engine module with compute_distribution/2 that fetches latest forecasts, builds empirical distribution, applies Gaussian smoothing, collapses tails into edge buckets, and normalizes
+- **Learnings for future iterations:**
+  - Engine uses Forecasts.latest_snapshots/2 to get one snapshot per model
+  - Edge bucket labels follow pattern: "26C or below" / "34C or higher" with configurable bounds via opts
+  - Distribution probabilities use string keys like "28C" for labeled outcomes
+  - Gaussian sigma is selected based on days_out from target_date using Gaussian.sigma/1
+---
+
+## 2026-03-06 - US-016
+- Implemented: CLOB API client (read-only) for Polymarket's CLOB endpoints
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/clob_client.ex` - ClobClient with get_price/2, get_orderbook/1, get_market/1
+- **Learnings for future iterations:**
+  - CLOB API base URL: `https://clob.polymarket.com`
+  - ClobClient lives in trading context alongside Position and Order schemas
+  - Price endpoint returns `{"price": "0.55"}` as string, needs Float.parse
+  - Orderbook endpoint returns `{"bids": [...], "asks": [...]}` with string price/size values
+  - Market info endpoint: `/markets/:condition_id`
+  - Configurable base URL via `:clob_api_url` app env key
 ---
