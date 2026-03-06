@@ -9,6 +9,7 @@ defmodule WeatherEdge.Workers.MispricingWorker do
   require Logger
 
   alias WeatherEdge.Markets
+  alias WeatherEdge.Forecasts.MetarClient
   alias WeatherEdge.Probability.Engine
   alias WeatherEdge.Signals
   alias WeatherEdge.Signals.{Alerter, Detector}
@@ -19,17 +20,46 @@ defmodule WeatherEdge.Workers.MispricingWorker do
 
     Logger.info("MispricingWorker: Scanning #{length(clusters)} active cluster(s)")
 
+    # Pre-fetch observed highs for today's stations to avoid duplicate API calls
+    today = Date.utc_today()
+
+    observed_highs =
+      clusters
+      |> Enum.filter(&(&1.target_date == today))
+      |> Enum.map(& &1.station_code)
+      |> Enum.uniq()
+      |> Enum.into(%{}, fn code ->
+        high =
+          case MetarClient.get_todays_high(code) do
+            {:ok, temp} -> temp
+            _ -> nil
+          end
+
+        {code, high}
+      end)
+
     Enum.each(clusters, fn cluster ->
-      process_cluster(cluster)
+      process_cluster(cluster, observed_highs)
     end)
 
     :ok
   end
 
-  defp process_cluster(cluster) do
+  defp process_cluster(cluster, observed_highs) do
+    # For today's markets, pass the observed high so the detector can skip resolved outcomes
+    detector_opts =
+      if cluster.target_date == Date.utc_today() do
+        case Map.get(observed_highs, cluster.station_code) do
+          nil -> []
+          temp -> [observed_high_c: temp]
+        end
+      else
+        []
+      end
+
     case Engine.compute_distribution(cluster.station_code, cluster.target_date) do
       {:ok, distribution} ->
-        case Detector.detect_mispricings(cluster, distribution) do
+        case Detector.detect_mispricings(cluster, distribution, detector_opts) do
           {:ok, signals, _flags} when signals != [] ->
             {:ok, _records} = Signals.store_signals(cluster.id, cluster.station_code, signals)
             Alerter.broadcast_signals(cluster.station_code, signals, cluster.target_date, cluster.event_slug)

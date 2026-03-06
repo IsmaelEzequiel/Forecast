@@ -9,6 +9,7 @@ defmodule WeatherEdge.Trading.PositionTracker do
   alias WeatherEdge.Repo
   alias WeatherEdge.Trading.Position
   alias WeatherEdge.Probability.Engine
+  alias WeatherEdge.PubSubHelper
 
   @doc """
   Fetches current YES price from CLOB and updates unrealized P&L on the position.
@@ -133,6 +134,74 @@ defmodule WeatherEdge.Trading.PositionTracker do
 
   def sell_position(%Position{status: status}) do
     {:error, {:invalid_status, status}}
+  end
+
+  @doc """
+  Reconciles DB positions with live Polymarket positions from the sidecar.
+  Positions that are open in the DB but no longer on Polymarket are marked as closed.
+  Returns the list of positions that were closed.
+  """
+  @spec reconcile_with_sidecar([map()]) :: [Position.t()]
+  def reconcile_with_sidecar(sidecar_positions) do
+    import Ecto.Query
+
+    # Build a set of asset IDs that are still open on Polymarket
+    # Only count positions with non-zero size as "still open"
+    live_asset_ids =
+      sidecar_positions
+      |> Enum.filter(fn p ->
+        size = p["size"] || p["currentValue"]
+        is_number(size) and size > 0
+      end)
+      |> Enum.flat_map(fn p ->
+        [p["asset"] || p["assetId"] || p["token_id"]]
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    # Find DB positions that are "open" but no longer on Polymarket
+    db_open_positions =
+      Position
+      |> where([p], p.status == "open")
+      |> Repo.all()
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Enum.reduce(db_open_positions, [], fn position, closed ->
+      if MapSet.member?(live_asset_ids, position.token_id) do
+        closed
+      else
+        # Position no longer on Polymarket — it was sold or resolved
+        # For won markets (resolved YES), close_price = 1.0
+        # For sold positions, we use the last known current_price
+        close_price = position.current_price || position.avg_buy_price
+        realized_pnl = (close_price - position.avg_buy_price) * position.tokens
+
+        case position
+             |> Position.changeset(%{
+               status: "closed",
+               close_price: close_price,
+               realized_pnl: realized_pnl,
+               closed_at: now
+             })
+             |> Repo.update() do
+          {:ok, updated} ->
+            Logger.info(
+              "Position #{position.id} reconciled as closed — realized P&L: #{realized_pnl}"
+            )
+
+            PubSubHelper.broadcast(
+              PubSubHelper.portfolio_position_update(),
+              {:position_updated, updated}
+            )
+
+            [updated | closed]
+
+          {:error, _} ->
+            closed
+        end
+      end
+    end)
   end
 
   # --- Private ---

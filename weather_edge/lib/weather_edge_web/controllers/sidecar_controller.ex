@@ -20,6 +20,9 @@ defmodule WeatherEdgeWeb.SidecarController do
       if is_list(params["positions"]) do
         :persistent_term.put(:sidecar_positions, params["positions"])
 
+        # Reconcile: close DB positions that are no longer on Polymarket
+        WeatherEdge.Trading.PositionTracker.reconcile_with_sidecar(params["positions"])
+
         PubSubHelper.broadcast(
           PubSubHelper.portfolio_position_update(),
           {:positions_synced, params["positions"]}

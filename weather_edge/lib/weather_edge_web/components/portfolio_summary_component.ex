@@ -9,7 +9,12 @@ defmodule WeatherEdgeWeb.Components.PortfolioSummaryComponent do
     {open_count, total_invested, current_value, unrealized_pnl, unrealized_pnl_pct,
      today_realized, total_realized} =
       if assigns.sidecar_positions != [] do
-        compute_from_sidecar(assigns.sidecar_positions)
+        # Use sidecar for open position data, but DB for realized P&L
+        {oc, ti, cv, up, upp, _tr_sidecar, _tr_sidecar2} =
+          compute_from_sidecar(assigns.sidecar_positions)
+
+        {today_r, total_r} = compute_realized_from_db(assigns.positions)
+        {oc, ti, cv, up, upp, today_r, total_r}
       else
         compute_from_db(assigns.positions)
       end
@@ -92,6 +97,21 @@ defmodule WeatherEdgeWeb.Components.PortfolioSummaryComponent do
 
     {open_count, total_invested, current_value, unrealized_pnl, unrealized_pnl_pct, total_realized,
      total_realized}
+  end
+
+  defp compute_realized_from_db(positions) do
+    closed_positions = Enum.filter(positions, &(&1.status != "open"))
+    today = Date.utc_today()
+
+    today_realized =
+      closed_positions
+      |> Enum.filter(fn p -> p.closed_at && DateTime.to_date(p.closed_at) == today end)
+      |> Enum.reduce(0.0, fn p, acc -> acc + (p.realized_pnl || 0.0) end)
+
+    total_realized =
+      Enum.reduce(closed_positions, 0.0, fn p, acc -> acc + (p.realized_pnl || 0.0) end)
+
+    {today_realized, total_realized}
   end
 
   defp compute_from_db(positions) do

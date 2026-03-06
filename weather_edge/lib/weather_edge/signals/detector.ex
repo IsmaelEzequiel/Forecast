@@ -21,24 +21,30 @@ defmodule WeatherEdge.Signals.Detector do
   @doc """
   Detects mispricings by comparing a probability distribution to market prices.
 
+  Options:
+    - `:observed_high_c` — today's observed high temperature in Celsius.
+      When provided, outcomes that are already determined by the observed temp
+      are skipped (e.g., won't recommend BUY NO on 27°C when observed high is already 27°C).
+
   Returns `{:ok, signals, flags}` where signals is a list of detected opportunities
   and flags contains structural information (e.g., `:structural_mispricing`).
   """
-  @spec detect_mispricings(MarketCluster.t(), Distribution.t()) ::
+  @spec detect_mispricings(MarketCluster.t(), Distribution.t(), keyword()) ::
           {:ok, [signal()], [atom()]}
-  def detect_mispricings(%MarketCluster{outcomes: outcomes}, %Distribution{} = dist)
+  def detect_mispricings(%MarketCluster{outcomes: outcomes} = cluster, %Distribution{} = dist, opts \\ [])
       when is_list(outcomes) do
     flags = check_structural_mispricing(outcomes)
+    observed_high_c = Keyword.get(opts, :observed_high_c)
 
     signals =
       outcomes
-      |> Enum.map(fn outcome -> analyze_outcome(outcome, dist) end)
+      |> Enum.map(fn outcome -> analyze_outcome(outcome, dist, observed_high_c, cluster) end)
       |> Enum.filter(fn signal -> signal != nil end)
 
     {:ok, signals, flags}
   end
 
-  defp analyze_outcome(outcome, dist) do
+  defp analyze_outcome(outcome, dist, observed_high_c, cluster) do
     label = Map.get(outcome, "outcome_label", "")
     yes_price = Map.get(outcome, "yes_price", 0.0)
     no_price = Map.get(outcome, "no_price", 0.0)
@@ -46,7 +52,13 @@ defmodule WeatherEdge.Signals.Detector do
 
     # Try exact match first, then extract short temp label (e.g., "28C" from full question)
     short_label = extract_temp_label(label)
-    model_prob = Distribution.probability_for(dist, short_label)
+
+    # If we have an observed high for today, use it to determine already-settled outcomes
+    model_prob =
+      case observed_override(short_label, observed_high_c, cluster) do
+        {:resolved, prob} -> prob
+        :use_model -> Distribution.probability_for(dist, short_label)
+      end
 
     edge_yes = model_prob - yes_price
     edge_no = (1.0 - model_prob) - no_price
@@ -70,6 +82,69 @@ defmodule WeatherEdge.Signals.Detector do
       }
     end
   end
+
+  # When observed high is available (today's market), override model probability
+  # for outcomes that are already determined by observation.
+  defp observed_override(_label, nil, _cluster), do: :use_model
+
+  defp observed_override(label, observed_high_c, _cluster) when is_number(observed_high_c) do
+    case parse_outcome_temp(label) do
+      {:or_higher, temp, unit} ->
+        observed = convert_temp(observed_high_c, unit)
+        # "X or higher" is already YES if observed >= X
+        if observed >= temp, do: {:resolved, 1.0}, else: :use_model
+
+      {:or_below, temp, unit} ->
+        observed = convert_temp(observed_high_c, unit)
+        # "X or below" — can only be YES if final high <= X.
+        # If observed already > X, it's resolved NO.
+        if observed > temp, do: {:resolved, 0.0}, else: :use_model
+
+      {:exact, temp, unit} ->
+        observed = convert_temp(observed_high_c, unit)
+        # Exact temp like "27C" — if observed already exceeds this, it can't be 27C anymore
+        # (the high will be higher). If observed == temp, it could still go higher.
+        # Only override if observed is already above this value.
+        if observed > temp, do: {:resolved, 0.0}, else: :use_model
+
+      {:range, low, _high, unit} ->
+        observed = convert_temp(observed_high_c, unit)
+        # Range like "25-26C" — if observed already above the range high, resolved NO
+        # But we check against low for safety: if observed > high of range, the high
+        # can't land in this range anymore
+        if observed > low + 1, do: {:resolved, 0.0}, else: :use_model
+
+      :unknown ->
+        :use_model
+    end
+  end
+
+  defp parse_outcome_temp(label) do
+    cond do
+      match = Regex.run(~r/^(-?\d+)\s*([CF])\s+or higher$/i, label) ->
+        [_, temp, unit] = match
+        {:or_higher, String.to_integer(temp), String.upcase(unit)}
+
+      match = Regex.run(~r/^(-?\d+)\s*([CF])\s+or below$/i, label) ->
+        [_, temp, unit] = match
+        {:or_below, String.to_integer(temp), String.upcase(unit)}
+
+      match = Regex.run(~r/^(-?\d+)\s*-\s*(-?\d+)\s*([CF])$/i, label) ->
+        [_, low, high, unit] = match
+        {:range, String.to_integer(low), String.to_integer(high), String.upcase(unit)}
+
+      match = Regex.run(~r/^(-?\d+)\s*([CF])$/i, label) ->
+        [_, temp, unit] = match
+        {:exact, String.to_integer(temp), String.upcase(unit)}
+
+      true ->
+        :unknown
+    end
+  end
+
+  defp convert_temp(temp_c, "C"), do: round(temp_c)
+  defp convert_temp(temp_c, "F"), do: round(temp_c * 9 / 5 + 32)
+  defp convert_temp(temp_c, _), do: round(temp_c)
 
   defp pick_best_side(edge_yes, edge_no) do
     cond do

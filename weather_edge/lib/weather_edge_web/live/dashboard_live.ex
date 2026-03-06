@@ -104,7 +104,18 @@ defmodule WeatherEdgeWeb.DashboardLive do
   end
 
   def handle_info({:positions_synced, positions}, socket) do
-    {:noreply, assign(socket, sidecar_positions: positions)}
+    # Reload DB positions to pick up any that were closed by reconciliation
+    all_positions = WeatherEdge.Repo.all(Position)
+    open_positions = Enum.filter(all_positions, &(&1.status == "open"))
+    positions_by_cluster = Enum.into(open_positions, %{}, fn p -> {p.market_cluster_id, p} end)
+
+    {:noreply,
+     assign(socket,
+       sidecar_positions: positions,
+       all_positions: all_positions,
+       positions: open_positions,
+       positions_by_cluster: positions_by_cluster
+     )}
   end
 
   def handle_info({:forecast_updated, _station_code}, socket) do
