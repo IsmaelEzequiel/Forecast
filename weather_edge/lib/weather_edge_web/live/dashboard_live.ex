@@ -7,6 +7,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
   alias WeatherEdge.PubSubHelper
 
   import Ecto.Query
+  import WeatherEdgeWeb.Components.HeaderComponent
 
   @impl true
   def mount(_params, _session, socket) do
@@ -26,6 +27,8 @@ defmodule WeatherEdgeWeb.DashboardLive do
       subscribe_to_topics(stations)
     end
 
+    wallet_address = Application.get_env(:weather_edge, :polymarket)[:wallet_address]
+
     {:ok,
      assign(socket,
        stations: stations,
@@ -33,6 +36,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
        positions: positions,
        signals: [],
        balance: nil,
+       wallet_address: wallet_address,
        show_add_station_modal: false
      )}
   end
@@ -108,21 +112,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <!-- Header -->
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-zinc-900">WEATHER EDGE</h1>
-        <div class="flex items-center gap-4">
-          <span :if={@balance} class="text-sm font-medium text-zinc-600">
-            $<%= :erlang.float_to_binary(@balance, decimals: 2) %> USDC
-          </span>
-          <button
-            phx-click="toggle_add_station_modal"
-            class="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-700"
-          >
-            + Add Station
-          </button>
-        </div>
-      </div>
+      <.dashboard_header balance={@balance} wallet_address={@wallet_address} />
 
       <!-- Portfolio Summary (placeholder) -->
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4">

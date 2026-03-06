@@ -16,9 +16,15 @@
 - Signals context lives in `lib/weather_edge/signals/` (Signal schema)
 - Calibration context lives in `lib/weather_edge/calibration/` (Accuracy schema)
 - Git working directory is `weather_edge/` - use relative paths for git add/commit
+- All PubSub usage goes through `WeatherEdge.PubSubHelper` - never use raw `Phoenix.PubSub` calls directly
 - Probability context lives in `lib/weather_edge/probability/` (Gaussian module)
 - Workers live in `lib/weather_edge/workers/` - use `use Oban.Worker, queue: :queue_name`
 - When referencing a worker that doesn't exist yet, create a stub so compilation passes
+- LiveView modules live in `lib/weather_edge_web/live/` - use `use WeatherEdgeWeb, :live_view`
+- Router uses `live "/path", ModuleLive` for LiveView routes (not `get`)
+- App layout is in `lib/weather_edge_web/components/layouts/app.html.heex`
+- CoreComponents defines `header/1` - avoid name collisions by prefixing custom component functions (e.g., `dashboard_header/1`)
+- Custom components go in `lib/weather_edge_web/components/<name>_component.ex` under `WeatherEdgeWeb.Components.*`
 
 ---
 
@@ -390,4 +396,63 @@
   - Position resolution: winner (outcome matches actual temp + side=YES) gets 1.0 per token; loser gets 0.0
   - determine_winning_outcome handles edge buckets ("26C or below", "34C or higher") and exact degree labels ("28C")
   - Cron entry for ResolutionWorker already existed in config.exs from US-001: `"0 23 * * *"`
+---
+
+## 2026-03-06 - US-031
+- Implemented: Calibration system with Resolver and BiasTracker modules
+- Files changed:
+  - `weather_edge/lib/weather_edge/calibration/resolver.ex` - Resolver with process_resolution/2: computes predicted distribution, per-model errors, resolution_correct flag, auto_buy outcome/pnl, stores ForecastAccuracy record
+  - `weather_edge/lib/weather_edge/calibration/bias_tracker.ex` - BiasTracker with stats_for_station/1 and stats_for_model/2: computes mean error, MAE, hit rate per station/model
+  - `weather_edge/lib/weather_edge/workers/resolution_worker.ex` - Added process_calibration/2 call after position resolution
+- **Learnings for future iterations:**
+  - Resolver is called from ResolutionWorker after positions are resolved (order matters: positions first, then calibration)
+  - model_errors JSONB stores per-model data with string keys ("error", "absolute_error", "predicted") since JSON serialization converts atoms
+  - BiasTracker queries ForecastAccuracy records and aggregates; model_errors map values have string keys from JSON
+  - resolution_correct checks if Distribution.top_outcome matches actual temp (handles edge bucket labels)
+  - auto_buy_outcome is determined from Position records: "sold_early" if any sold, "win" if positive pnl, "loss" otherwise
+---
+
+## 2026-03-06 - US-032
+- Implemented: PubSubHelper module centralizing all PubSub topics and broadcast/subscribe functions
+- Files changed:
+  - `weather_edge/lib/weather_edge/pub_sub_helper.ex` - New module with topic functions (station_new_event, station_forecast_update, station_price_update, station_auto_buy, station_signal, stations, portfolio_balance_update, portfolio_position_update) and broadcast/subscribe wrappers
+  - `weather_edge/lib/weather_edge/stations.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/event_scanner_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/auto_buyer_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/forecast_refresh_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/balance_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/workers/position_monitor_worker.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/signals/alerter.ex` - Replaced raw PubSub calls with PubSubHelper
+  - `weather_edge/lib/weather_edge/trading/order_manager.ex` - Replaced raw PubSub calls with PubSubHelper
+- **Learnings for future iterations:**
+  - All PubSub usage now goes through `WeatherEdge.PubSubHelper` - use `PubSubHelper.broadcast/2` and `PubSubHelper.subscribe/1`
+  - Topic functions: `station_new_event(code)`, `station_forecast_update(code)`, `station_price_update(code)`, `station_auto_buy(code)`, `station_signal(code)`, `stations()`, `portfolio_balance_update()`, `portfolio_position_update()`
+  - The "trading:CODE" topic is accessed via `station_auto_buy(code)` since it's used for auto-buy, order placement, and general trading events
+---
+
+## 2026-03-06 - US-033
+- Implemented: Router and dashboard LiveView skeleton
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - DashboardLive with mount (loads stations, clusters, positions), PubSub subscriptions for all topics, handle_info for station/balance/position/event updates, basic render with header, station cards, signal feed, portfolio summary placeholders
+  - `weather_edge/lib/weather_edge_web/live/station_detail_live.ex` - StationDetailLive at /stations/:code/events/:event_id with mount (loads station + cluster), PubSub subscriptions, placeholder sections for distribution, model breakdown, orderbook, METAR, action buttons
+  - `weather_edge/lib/weather_edge_web/router.ex` - Replaced PageController route with `live "/", DashboardLive` and `live "/stations/:code/events/:event_id", StationDetailLive`
+  - `weather_edge/lib/weather_edge_web/components/layouts/app.html.heex` - Simplified layout, removed default Phoenix header, widened max-width to 5xl
+- **Learnings for future iterations:**
+  - LiveView modules go in `lib/weather_edge_web/live/` using `use WeatherEdgeWeb, :live_view`
+  - `WeatherEdgeWeb` already defines `:live_view` macro with layout and html_helpers
+  - DashboardLive queries open positions directly via Ecto (no Trading context function exists for this yet)
+  - PubSub subscription must happen inside `if connected?(socket)` guard to avoid subscribing during static render
+  - App layout at `components/layouts/app.html.heex` - `@inner_content` renders the LiveView content
+---
+
+## 2026-03-06 - US-034
+- Implemented: Header function component with balance, wallet address, Add Station button, and Settings link
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/header_component.ex` - New HeaderComponent with `dashboard_header/1` function component displaying title, USDC balance, truncated wallet address, Add Station button, Settings link
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Replaced inline header with `<.dashboard_header>` component, added wallet_address to assigns from config
+- **Learnings for future iterations:**
+  - CoreComponents already defines a `header/1` function - avoid naming conflicts by using a prefixed name like `dashboard_header/1`
+  - Custom components go in `lib/weather_edge_web/components/` as separate modules under `WeatherEdgeWeb.Components.*`
+  - Import component modules in LiveViews with `import WeatherEdgeWeb.Components.HeaderComponent`
+  - Wallet address is read from `Application.get_env(:weather_edge, :polymarket)[:wallet_address]`
 ---
