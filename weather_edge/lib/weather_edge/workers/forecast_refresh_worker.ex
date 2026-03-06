@@ -12,8 +12,7 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
   alias WeatherEdge.Forecasts.OpenMeteoClient
   alias WeatherEdge.Markets
   alias WeatherEdge.Stations
-
-  @pubsub WeatherEdge.PubSub
+  alias WeatherEdge.PubSubHelper
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -53,9 +52,8 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
           end)
         end)
 
-        Phoenix.PubSub.broadcast(
-          @pubsub,
-          "station:#{station.code}:forecast_update",
+        PubSubHelper.broadcast(
+          PubSubHelper.station_forecast_update(station.code),
           {:forecast_updated, station.code, length(target_dates)}
         )
 

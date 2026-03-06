@@ -8,14 +8,14 @@ defmodule WeatherEdge.Workers.BalanceWorker do
   require Logger
 
   alias WeatherEdge.Trading.DataClient
+  alias WeatherEdge.PubSubHelper
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     case DataClient.get_balance() do
       {:ok, balance} ->
-        Phoenix.PubSub.broadcast(
-          WeatherEdge.PubSub,
-          "portfolio:balance_update",
+        PubSubHelper.broadcast(
+          PubSubHelper.portfolio_balance_update(),
           {:balance_updated, balance}
         )
 

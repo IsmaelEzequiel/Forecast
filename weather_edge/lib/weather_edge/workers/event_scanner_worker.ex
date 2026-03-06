@@ -11,8 +11,7 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
   alias WeatherEdge.Markets
   alias WeatherEdge.Markets.{GammaClient, EventParser}
   alias WeatherEdge.Stations
-
-  @pubsub WeatherEdge.PubSub
+  alias WeatherEdge.PubSubHelper
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -64,9 +63,8 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
                 "EventScanner: New event detected for #{station.code}: #{cluster.title}"
               )
 
-              Phoenix.PubSub.broadcast(
-                @pubsub,
-                "station:#{station.code}:new_event",
+              PubSubHelper.broadcast(
+                PubSubHelper.station_new_event(station.code),
                 {:new_event, station.code, cluster}
               )
 

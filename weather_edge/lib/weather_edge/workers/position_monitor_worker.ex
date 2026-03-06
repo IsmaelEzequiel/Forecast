@@ -12,6 +12,7 @@ defmodule WeatherEdge.Workers.PositionMonitorWorker do
 
   alias WeatherEdge.Repo
   alias WeatherEdge.Trading.{Position, PositionTracker}
+  alias WeatherEdge.PubSubHelper
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -35,9 +36,8 @@ defmodule WeatherEdge.Workers.PositionMonitorWorker do
   defp monitor_position(position) do
     with {:ok, updated} <- PositionTracker.update_position(position),
          {:ok, updated} <- PositionTracker.generate_recommendation(updated) do
-      Phoenix.PubSub.broadcast(
-        WeatherEdge.PubSub,
-        "portfolio:position_update",
+      PubSubHelper.broadcast(
+        PubSubHelper.portfolio_position_update(),
         {:position_updated, updated}
       )
 

@@ -14,8 +14,7 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   alias WeatherEdge.Probability.{Distribution, Engine}
   alias WeatherEdge.Stations
   alias WeatherEdge.Trading.{ClobClient, OrderManager}
-
-  @pubsub WeatherEdge.PubSub
+  alias WeatherEdge.PubSubHelper
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"station_code" => station_code, "event_id" => event_id}}) do
@@ -171,9 +170,8 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   # --- PubSub Broadcasts ---
 
   defp broadcast_executed(station_code, cluster, outcome, order, price, model_prob) do
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "trading:#{station_code}",
+    PubSubHelper.broadcast(
+      PubSubHelper.station_auto_buy(station_code),
       {:auto_buy_executed, %{
         station_code: station_code,
         event_id: cluster.event_id,
@@ -187,9 +185,8 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   end
 
   defp broadcast_skipped(station_code, cluster, outcome, price) do
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "trading:#{station_code}",
+    PubSubHelper.broadcast(
+      PubSubHelper.station_auto_buy(station_code),
       {:auto_buy_skipped, %{
         station_code: station_code,
         event_id: cluster.event_id,
@@ -201,9 +198,8 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   end
 
   defp broadcast_secondary_alert(station_code, cluster, label, price, model_prob) do
-    Phoenix.PubSub.broadcast(
-      @pubsub,
-      "trading:#{station_code}",
+    PubSubHelper.broadcast(
+      PubSubHelper.station_auto_buy(station_code),
       {:secondary_opportunity, %{
         station_code: station_code,
         event_id: cluster.event_id,

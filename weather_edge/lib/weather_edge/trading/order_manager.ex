@@ -12,7 +12,7 @@ defmodule WeatherEdge.Trading.OrderManager do
 
   import Ecto.Query
 
-  @pubsub WeatherEdge.PubSub
+  alias WeatherEdge.PubSubHelper
 
   @doc """
   Places a BUY order with safety guards.
@@ -333,8 +333,8 @@ defmodule WeatherEdge.Trading.OrderManager do
   # --- PubSub ---
 
   defp broadcast(event, order) do
-    topic = "trading:#{order.station_code}"
-    Phoenix.PubSub.broadcast(@pubsub, topic, {event, order})
+    topic = PubSubHelper.station_auto_buy(order.station_code)
+    PubSubHelper.broadcast(topic, {event, order})
   end
 
   # --- Config ---

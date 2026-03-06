@@ -7,9 +7,7 @@ defmodule WeatherEdge.Stations do
   alias WeatherEdge.Repo
   alias WeatherEdge.Stations.Station
   alias WeatherEdge.Forecasts.MetarClient
-
-  @pubsub WeatherEdge.PubSub
-  @topic "stations"
+  alias WeatherEdge.PubSubHelper
 
   def list_stations do
     Repo.all(from s in Station, order_by: s.code)
@@ -88,7 +86,7 @@ defmodule WeatherEdge.Stations do
   end
 
   defp tap_broadcast({:ok, station} = result, event) do
-    Phoenix.PubSub.broadcast(@pubsub, @topic, {event, station})
+    PubSubHelper.broadcast(PubSubHelper.stations(), {event, station})
     result
   end
 
