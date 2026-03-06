@@ -28,6 +28,7 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
               </span>
               <span class="font-semibold text-zinc-700">{get_field(signal, :station_code, "???")}</span>
               <span class="font-bold text-zinc-900">{extract_temp(signal)}</span>
+              <span class="text-xs text-zinc-400">{format_target_date(signal)}</span>
             </div>
             <div class="flex items-center gap-2">
               <span class={["text-xs font-bold px-2 py-0.5 rounded", side_class(signal)]}>
@@ -160,6 +161,33 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
 
   defp format_timestamp(%{timestamp: %DateTime{} = dt}), do: Calendar.strftime(dt, "%H:%M:%S")
   defp format_timestamp(_), do: "--:--:--"
+
+  # --- Target date ---
+
+  defp format_target_date(signal) do
+    case get_field(signal, :target_date, nil) do
+      %Date{} = date -> date_label(date)
+      _ -> extract_date_from_label(get_field(signal, :outcome_label, ""))
+    end
+  end
+
+  defp date_label(date) do
+    days = Date.diff(date, Date.utc_today())
+
+    cond do
+      days == 0 -> "Today"
+      days == 1 -> "Tomorrow"
+      days > 1 -> "+#{days}d (#{Calendar.strftime(date, "%b %d")})"
+      true -> Calendar.strftime(date, "%b %d")
+    end
+  end
+
+  defp extract_date_from_label(label) do
+    case Regex.run(~r/on ((?:January|February|March|April|May|June|July|August|September|October|November|December) \d+)/i, label) do
+      [_, date_str] -> date_str
+      _ -> ""
+    end
+  end
 
   # --- Signal type & alert ---
 
