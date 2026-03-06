@@ -367,3 +367,27 @@
   - PubSub topic for portfolio updates: `"portfolio:position_update"` with event `{:position_updated, position}`
   - Worker follows same error-handling pattern: rescue per-entity errors, log and continue
 ---
+
+## 2026-03-06 - US-029
+- Implemented: Balance worker that refreshes USDC balance every 5 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/balance_worker.ex` - BalanceWorker with Oban.Worker queue: :trading, fetches balance via DataClient, broadcasts to PubSub
+- **Learnings for future iterations:**
+  - Simplest worker pattern: single API call + PubSub broadcast, always return :ok even on error (just log warning)
+  - PubSub topic for balance: `"portfolio:balance_update"` with event `{:balance_updated, balance}`
+  - Cron entry already existed in config.exs from US-001 scaffold
+---
+
+## 2026-03-06 - US-030
+- Implemented: Resolution worker that processes expired market clusters daily
+- Files changed:
+  - `weather_edge/lib/weather_edge/forecasts/wunderground_client.ex` - WundergroundClient with get_actual_max_temp/2, parses Weather Underground history page HTML to extract max temperature (F->C conversion)
+  - `weather_edge/lib/weather_edge/workers/resolution_worker.ex` - ResolutionWorker with Oban.Worker queue: :cleanup, queries unresolved clusters with target_date < today, fetches actual temp, marks resolved, finalizes position P&L
+- **Learnings for future iterations:**
+  - Weather Underground history URL pattern: `https://www.wunderground.com/history/daily/{STATION_CODE}/date/{YYYY-MM-DD}`
+  - WU page embeds temp data in multiple formats: HTML table with "Max Temperature" row, JSON `tempHigh`, or `maxTempAvg` fields
+  - Temperature conversion from F to C: `round((temp_f - 32) * 5 / 9)`
+  - Position resolution: winner (outcome matches actual temp + side=YES) gets 1.0 per token; loser gets 0.0
+  - determine_winning_outcome handles edge buckets ("26C or below", "34C or higher") and exact degree labels ("28C")
+  - Cron entry for ResolutionWorker already existed in config.exs from US-001: `"0 23 * * *"`
+---
