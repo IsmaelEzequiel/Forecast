@@ -44,7 +44,9 @@ defmodule WeatherEdge.Signals.Detector do
     no_price = Map.get(outcome, "no_price", 0.0)
     liquidity = Map.get(outcome, "liquidity", 0.0)
 
-    model_prob = Distribution.probability_for(dist, label)
+    # Try exact match first, then extract short temp label (e.g., "28C" from full question)
+    short_label = extract_temp_label(label)
+    model_prob = Distribution.probability_for(dist, short_label)
 
     edge_yes = model_prob - yes_price
     edge_no = (1.0 - model_prob) - no_price
@@ -96,6 +98,21 @@ defmodule WeatherEdge.Signals.Detector do
         nil
     end
   end
+
+  defp extract_temp_label(label) when is_binary(label) do
+    case Regex.run(~r/(\d+)\s*°?\s*([CF])\s+(or below|or higher)/i, label) do
+      [_, temp, unit, suffix] ->
+        "#{temp}#{String.upcase(unit)} #{String.downcase(suffix)}"
+
+      _ ->
+        case Regex.run(~r/(\d+)\s*°?\s*([CF])/i, label) do
+          [_, temp, unit] -> "#{temp}#{String.upcase(unit)}"
+          _ -> label
+        end
+    end
+  end
+
+  defp extract_temp_label(label), do: label
 
   defp check_structural_mispricing(outcomes) do
     yes_sum =

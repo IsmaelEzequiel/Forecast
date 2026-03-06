@@ -23,7 +23,7 @@ defmodule WeatherEdge.Signals.Signal do
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_length(:station_code, max: 4)
-    |> validate_length(:outcome_label, max: 30)
+    |> validate_length(:outcome_label, max: 255)
     |> validate_length(:recommended_side, max: 3)
     |> validate_length(:alert_level, max: 20)
     |> foreign_key_constraint(:market_cluster_id)

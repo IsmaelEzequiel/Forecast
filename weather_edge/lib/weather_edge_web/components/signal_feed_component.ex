@@ -64,11 +64,11 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
   defp signal_outcome(%WeatherEdge.Signals.Signal{outcome_label: label}), do: label
   defp signal_outcome(_), do: "-"
 
-  defp signal_price(%{market_price: price}) when is_float(price),
-    do: :erlang.float_to_binary(price, decimals: 2)
+  defp signal_price(%{market_price: price}) when is_number(price),
+    do: "$#{:erlang.float_to_binary(price / 1, decimals: 2)}"
 
-  defp signal_price(%WeatherEdge.Signals.Signal{market_price: price}) when is_float(price),
-    do: :erlang.float_to_binary(price, decimals: 2)
+  defp signal_price(%WeatherEdge.Signals.Signal{market_price: price}) when is_number(price),
+    do: "$#{:erlang.float_to_binary(price / 1, decimals: 2)}"
 
   defp signal_price(_), do: "-"
 
