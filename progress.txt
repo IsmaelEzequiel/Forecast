@@ -22,6 +22,7 @@
 - When referencing a worker that doesn't exist yet, create a stub so compilation passes
 - LiveView modules live in `lib/weather_edge_web/live/` - use `use WeatherEdgeWeb, :live_view`
 - Router uses `live "/path", ModuleLive` for LiveView routes (not `get`)
+- JS hooks are defined in `assets/js/app.js` in the `Hooks` object, passed to LiveSocket via `hooks: Hooks`
 - App layout is in `lib/weather_edge_web/components/layouts/app.html.heex`
 - CoreComponents defines `header/1` - avoid name collisions by prefixing custom component functions (e.g., `dashboard_header/1`)
 - Custom components go in `lib/weather_edge_web/components/<name>_component.ex` under `WeatherEdgeWeb.Components.*`
@@ -455,4 +456,43 @@
   - Custom components go in `lib/weather_edge_web/components/` as separate modules under `WeatherEdgeWeb.Components.*`
   - Import component modules in LiveViews with `import WeatherEdgeWeb.Components.HeaderComponent`
   - Wallet address is read from `Application.get_env(:weather_edge, :polymarket)[:wallet_address]`
+---
+
+## 2026-03-06 - US-035
+- Implemented: Add Station modal component with ICAO code validation and two-step flow (input -> confirm)
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/add_station_modal_component.ex` - New AddStationModalComponent with `add_station_modal/1` function component, two-step UI (input form with spinner, then confirm view with station details)
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Added modal state assigns, event handlers (validate_station, confirm_add_station, reset_add_station, close_add_station_modal), async METAR validation via handle_info
+  - `weather_edge/assets/js/app.js` - Added UppercaseInput JS hook for auto-uppercasing ICAO code input
+- **Learnings for future iterations:**
+  - CoreComponents already has a `modal/1` component with show/hide JS animations, X button, click-away, and escape key support
+  - Use `on_cancel` attr on `<.modal>` to push a LiveView event when modal is closed (e.g., `JS.push("close_add_station_modal")`)
+  - For async operations in LiveView (like API calls), use `send(self(), msg)` to avoid blocking the event handler, then process in `handle_info`
+  - JS hooks are defined in `assets/js/app.js` as a `Hooks` object passed to `LiveSocket` constructor
+  - `phx-hook="HookName"` attribute on an element connects it to the corresponding JS hook
+---
+
+## 2026-03-06 - US-036
+- Implemented: Station card component with monitoring/auto-buy toggles, inline settings inputs, balance display, event listing
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/station_card_component.ex` - New StationCardComponent with `station_card/1` function component: toggle buttons for monitoring/auto-buy, inline number inputs for max_buy_price/buy_amount_usdc, balance display, slug_pattern preview, active event list with View Details links
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Added toggle_monitoring, toggle_auto_buy, update_station_settings event handlers; replaced inline station HTML with `<.station_card>` component; added helper functions for toggle and float parsing
+- **Learnings for future iterations:**
+  - Toggle buttons use CSS classes for visual state (translate-x-4 for on, translate-x-0 for off) with bg color changes
+  - `phx-change` on form with `phx-debounce="500"` works well for inline number inputs that auto-save
+  - Station updates via Stations context automatically broadcast PubSub events, so UI updates reactively
+  - Component imports go at the top of LiveView modules alongside other component imports
+---
+
+## 2026-03-06 - US-037
+- Implemented: Event card component showing position, P&L, forecast consensus, recommendation, and action buttons
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/event_card_component.ex` - New EventCardComponent with event_card/1 function component: target date with days-until-resolution, position details (outcome, tokens, buy/current price, P&L%), color-coded P&L, recommendation text, SELL/HOLD buttons, auto-bought indicator, top 2 outcomes from cluster
+  - `weather_edge/lib/weather_edge_web/components/station_card_component.ex` - Added positions_by_cluster attr, replaced inline event HTML with `<.event_card>` component, imported EventCardComponent
+  - `weather_edge/lib/weather_edge_web/live/dashboard_live.ex` - Added positions_by_cluster assign (indexed by market_cluster_id), passed to station_card, updated position_updated handler to sync both positions list and positions_by_cluster map
+- **Learnings for future iterations:**
+  - positions_by_cluster map (keyed by market_cluster_id) is more efficient for lookup than scanning a list per cluster
+  - Calendar.strftime/2 is available in Elixir for date formatting (e.g., "%b %-d" for "Mar 6")
+  - Component composition: EventCardComponent is imported in StationCardComponent, not in DashboardLive
+  - Date.diff/2 with Date.utc_today() gives days until resolution
 ---

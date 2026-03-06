@@ -25,6 +25,9 @@ defmodule WeatherEdgeWeb.DashboardLive do
       |> where([p], p.status == "open")
       |> WeatherEdge.Repo.all()
 
+    positions_by_cluster =
+      Enum.into(positions, %{}, fn p -> {p.market_cluster_id, p} end)
+
     if connected?(socket) do
       subscribe_to_topics(stations)
     end
@@ -36,6 +39,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
        stations: stations,
        clusters_by_station: clusters_by_station,
        positions: positions,
+       positions_by_cluster: positions_by_cluster,
        signals: [],
        balance: nil,
        wallet_address: wallet_address,
@@ -84,7 +88,9 @@ defmodule WeatherEdgeWeb.DashboardLive do
         if p.id == position.id, do: position, else: p
       end)
 
-    {:noreply, assign(socket, positions: positions)}
+    positions_by_cluster = Map.put(socket.assigns.positions_by_cluster, position.market_cluster_id, position)
+
+    {:noreply, assign(socket, positions: positions, positions_by_cluster: positions_by_cluster)}
   end
 
   def handle_info({:forecast_updated, _station_code}, socket) do
@@ -237,6 +243,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
           :for={station <- @stations}
           station={station}
           clusters={Map.get(@clusters_by_station, station.code, [])}
+          positions_by_cluster={@positions_by_cluster}
           balance={@balance}
         />
       </div>

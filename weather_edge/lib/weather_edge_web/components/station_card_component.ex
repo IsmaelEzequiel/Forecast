@@ -1,8 +1,11 @@
 defmodule WeatherEdgeWeb.Components.StationCardComponent do
   use Phoenix.Component
 
+  import WeatherEdgeWeb.Components.EventCardComponent
+
   attr :station, :map, required: true
   attr :clusters, :list, default: []
+  attr :positions_by_cluster, :map, default: %{}
   attr :balance, :float, default: nil
 
   def station_card(assigns) do
@@ -84,19 +87,12 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
 
       <div :if={@clusters != []} class="space-y-2">
         <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Active Events</h3>
-        <div :for={cluster <- @clusters} class="ml-2 rounded border border-zinc-100 bg-zinc-50 p-3">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-medium text-zinc-700">
-              <%= cluster.target_date %>
-            </span>
-            <.link
-              navigate={"/stations/#{@station.code}/events/#{cluster.id}"}
-              class="text-xs text-blue-600 hover:underline"
-            >
-              View Details
-            </.link>
-          </div>
-        </div>
+        <.event_card
+          :for={cluster <- @clusters}
+          cluster={cluster}
+          position={Map.get(@positions_by_cluster, cluster.id)}
+          station_code={@station.code}
+        />
       </div>
 
       <p :if={@clusters == []} class="text-sm text-zinc-400">No active events</p>
