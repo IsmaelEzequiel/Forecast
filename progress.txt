@@ -214,3 +214,16 @@
   - Market info endpoint: `/markets/:condition_id`
   - Configurable base URL via `:clob_api_url` app env key
 ---
+
+## 2026-03-06 - US-017
+- Implemented: Data API client for Polymarket positions, activity, and USDC balance
+- Files changed:
+  - `weather_edge/lib/weather_edge/trading/data_client.ex` - DataClient with get_positions/1, get_activity/1, get_balance/1
+- **Learnings for future iterations:**
+  - Data API base URL: `https://data-api.polymarket.com`
+  - DataClient lives in trading context alongside ClobClient
+  - Wallet address is loaded from `:weather_edge, :polymarket, :wallet_address` config
+  - All functions accept optional `wallet_address:` keyword to override the config value
+  - Configurable base URL via `:data_api_url` app env key
+  - Balance endpoint returns balance as string, needs Float.parse (same pattern as ClobClient prices)
+---
