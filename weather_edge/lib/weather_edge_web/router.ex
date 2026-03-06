@@ -17,7 +17,8 @@ defmodule WeatherEdgeWeb.Router do
   scope "/", WeatherEdgeWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", DashboardLive
+    live "/stations/:code/events/:event_id", StationDetailLive
   end
 
   # Other scopes may use custom stacks.
