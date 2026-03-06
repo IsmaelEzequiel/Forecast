@@ -1,0 +1,40 @@
+## Codebase Patterns
+- Mix project root is at `weather_edge/` subdirectory (not repo root)
+- Run `mix compile --warnings-as-errors` from `weather_edge/` for typecheck
+- Oban cron workers are defined in `config/config.exs` - worker modules must exist before compilation
+- Test config uses `Oban, testing: :inline` to disable async job processing
+- Polymarket credentials are in runtime.exs under `:polymarket` key
+- Trading safety config is under `:trading` key, forecasts under `:forecasts` key
+- Docker: `docker-compose up` from `weather_edge/` dir; app runs migrations on startup via entrypoint.sh
+- Production release uses `WeatherEdge.Release.migrate/0` for Ecto migrations
+
+---
+
+## 2026-03-06 - US-001
+- Implemented: Phoenix 1.7+ project scaffold with all dependencies and configuration
+- Files changed:
+  - `weather_edge/mix.exs` - Added oban, req, timex, ex_secp256k1, ex_abi, ex_keccak deps
+  - `weather_edge/config/config.exs` - Oban config with 5 queues and 8 cron schedules, trading safety config, forecast config
+  - `weather_edge/config/runtime.exs` - Polymarket env vars (private_key, api_key, api_secret, api_passphrase, wallet_address), chain_id: 137
+  - `weather_edge/config/test.exs` - Oban testing: :inline
+  - `weather_edge/lib/weather_edge/application.ex` - Added Oban to supervision tree
+  - `weather_edge/.env.example` - All required env vars documented
+- **Learnings for future iterations:**
+  - Phoenix generator creates project in a subdirectory, so all mix commands must be run from `weather_edge/`
+  - The Oban cron plugin references worker modules that don't exist yet - compilation still passes because cron config is just atoms
+  - ex_secp256k1 and ex_keccak download precompiled NIFs via rustler_precompiled
+---
+
+## 2026-03-06 - US-002
+- Implemented: Docker Compose setup with multi-stage Dockerfile and TimescaleDB
+- Files changed:
+  - `weather_edge/Dockerfile` - Multi-stage build (builder with hexpm/elixir image + runner with debian:bookworm-slim)
+  - `weather_edge/docker-compose.yml` - Two services: app (Elixir) and db (timescale/timescaledb:latest-pg16), persistent volume, port 4000/5432
+  - `weather_edge/entrypoint.sh` - Runs migrations then starts server
+  - `weather_edge/lib/weather_edge/release.ex` - Release module with migrate/0 for production migrations
+  - `weather_edge/.dockerignore` - Excludes _build, deps, .env, node_modules
+- **Learnings for future iterations:**
+  - Docker CMD with `&&` doesn't work for chaining commands; use an entrypoint script instead
+  - WeatherEdge.Release module needed for running migrations in production releases
+  - The docker-compose.yml overrides DATABASE_URL in environment to point to the `db` service
+---
