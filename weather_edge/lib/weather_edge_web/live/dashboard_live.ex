@@ -9,6 +9,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
   import Ecto.Query
   import WeatherEdgeWeb.Components.HeaderComponent
   import WeatherEdgeWeb.Components.AddStationModalComponent
+  import WeatherEdgeWeb.Components.StationCardComponent
 
   @impl true
   def mount(_params, _session, socket) do
@@ -189,6 +190,32 @@ defmodule WeatherEdgeWeb.DashboardLive do
      )}
   end
 
+  def handle_event("toggle_monitoring", %{"code" => code}, socket) do
+    toggle_station_field(socket, code, :monitoring_enabled)
+  end
+
+  def handle_event("toggle_auto_buy", %{"code" => code}, socket) do
+    toggle_station_field(socket, code, :auto_buy_enabled)
+  end
+
+  def handle_event("update_station_settings", %{"code" => code} = params, socket) do
+    station = Enum.find(socket.assigns.stations, &(&1.code == code))
+
+    if station do
+      attrs =
+        %{}
+        |> maybe_put(:max_buy_price, params["max_buy_price"])
+        |> maybe_put(:buy_amount_usdc, params["buy_amount_usdc"])
+
+      case Stations.update_station(station, attrs) do
+        {:ok, _updated} -> {:noreply, socket}
+        {:error, _} -> {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("sell_position", %{"position_id" => _position_id}, socket) do
     {:noreply, socket}
   end
@@ -206,33 +233,12 @@ defmodule WeatherEdgeWeb.DashboardLive do
 
       <!-- Station Cards -->
       <div class="space-y-4">
-        <div :for={station <- @stations} class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-          <div class="flex items-center justify-between mb-2">
-            <h2 class="text-lg font-semibold text-zinc-900">
-              <%= station.code %> - <%= station.city %>
-            </h2>
-            <span class={"text-xs px-2 py-1 rounded-full #{if station.monitoring_enabled, do: "bg-green-100 text-green-700", else: "bg-zinc-100 text-zinc-500"}"}>
-              <%= if station.monitoring_enabled, do: "Monitoring ON", else: "Monitoring OFF" %>
-            </span>
-          </div>
-
-          <div :if={clusters = Map.get(@clusters_by_station, station.code, [])}>
-            <div :for={cluster <- clusters} class="ml-4 mt-2 rounded border border-zinc-100 bg-zinc-50 p-3">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-zinc-700">
-                  <%= cluster.target_date %>
-                </span>
-                <.link
-                  navigate={~p"/stations/#{station.code}/events/#{cluster.id}"}
-                  class="text-xs text-blue-600 hover:underline"
-                >
-                  View Details
-                </.link>
-              </div>
-            </div>
-            <p :if={clusters == []} class="ml-4 mt-2 text-sm text-zinc-400">No active events</p>
-          </div>
-        </div>
+        <.station_card
+          :for={station <- @stations}
+          station={station}
+          clusters={Map.get(@clusters_by_station, station.code, [])}
+          balance={@balance}
+        />
       </div>
 
       <div :if={@stations == []} class="text-center py-12 text-zinc-400">
@@ -271,6 +277,27 @@ defmodule WeatherEdgeWeb.DashboardLive do
     PubSubHelper.subscribe(PubSubHelper.station_signal(station.code))
     PubSubHelper.subscribe(PubSubHelper.station_auto_buy(station.code))
     PubSubHelper.subscribe(PubSubHelper.station_price_update(station.code))
+  end
+
+  defp toggle_station_field(socket, code, field) do
+    station = Enum.find(socket.assigns.stations, &(&1.code == code))
+
+    if station do
+      current_value = Map.get(station, field)
+      Stations.update_station(station, %{field => !current_value})
+    end
+
+    {:noreply, socket}
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+
+  defp maybe_put(map, key, value) when is_binary(value) do
+    case Float.parse(value) do
+      {num, _} -> Map.put(map, key, num)
+      :error -> map
+    end
   end
 
   defp changeset_error_message(changeset) do
