@@ -25,13 +25,15 @@ defmodule WeatherEdgeWeb.StationDetailLive do
           send(self(), :load_data)
         end
 
-        position = load_position(cluster)
+        db_positions = load_positions(cluster)
+        sidecar_positions = load_sidecar_positions(cluster)
 
         {:ok,
          assign(socket,
            station: station,
            cluster: cluster,
-           position: position,
+           positions: db_positions,
+           sidecar_positions: sidecar_positions,
            distribution: nil,
            model_snapshots: [],
            market_health: nil,
@@ -52,13 +54,13 @@ defmodule WeatherEdgeWeb.StationDetailLive do
 
   @impl true
   def handle_info(:load_data, socket) do
-    %{station: station, cluster: cluster, position: position} = socket.assigns
+    %{station: station, cluster: cluster} = socket.assigns
 
     if cluster do
       distribution = compute_distribution(station.code, cluster, station.temp_unit || "C")
       model_snapshots = load_model_snapshots(station.code, cluster.target_date)
       market_health = compute_market_health(cluster)
-      orderbook = load_orderbook(position, cluster)
+      orderbook = load_orderbook(socket.assigns.positions, socket.assigns.sidecar_positions, cluster)
       metar = load_metar(station.code)
       todays_high = load_todays_high(station.code)
 
@@ -78,11 +80,12 @@ defmodule WeatherEdgeWeb.StationDetailLive do
   end
 
   def handle_info({:position_updated, updated_position}, socket) do
-    if socket.assigns.position && updated_position.id == socket.assigns.position.id do
-      {:noreply, assign(socket, position: updated_position)}
-    else
-      {:noreply, socket}
-    end
+    positions =
+      Enum.map(socket.assigns.positions, fn p ->
+        if p.id == updated_position.id, do: updated_position, else: p
+      end)
+
+    {:noreply, assign(socket, positions: positions)}
   end
 
   def handle_info({:forecast_updated, _station_code}, socket) do
@@ -95,14 +98,21 @@ defmodule WeatherEdgeWeb.StationDetailLive do
   end
 
   @impl true
-  def handle_event("sell_position", _params, socket) do
-    case socket.assigns.position do
+  def handle_event("sell_position", %{"id" => id_str}, socket) do
+    position_id = String.to_integer(id_str)
+
+    case Enum.find(socket.assigns.positions, &(&1.id == position_id)) do
       %Position{status: "open"} = position ->
         case PositionTracker.sell_position(position) do
           {:ok, updated} ->
+            positions =
+              Enum.map(socket.assigns.positions, fn p ->
+                if p.id == updated.id, do: updated, else: p
+              end)
+
             {:noreply,
              socket
-             |> assign(position: updated)
+             |> assign(positions: positions)
              |> put_flash(:info, "Sell order placed")}
 
           {:error, reason} ->
@@ -114,19 +124,42 @@ defmodule WeatherEdgeWeb.StationDetailLive do
     end
   end
 
+  def handle_event("sell_position", _params, socket) do
+    {:noreply, put_flash(socket, :error, "No position specified")}
+  end
+
   def handle_event("buy_more", _params, socket) do
     {:noreply, put_flash(socket, :info, "Use the auto-buyer or place orders via the trading module")}
   end
 
   # --- Data Loading ---
 
-  defp load_position(nil), do: nil
+  defp load_positions(nil), do: []
 
-  defp load_position(cluster) do
+  defp load_positions(cluster) do
     Position
     |> where([p], p.market_cluster_id == ^cluster.id and p.status == "open")
-    |> limit(1)
-    |> Repo.one()
+    |> Repo.all()
+  end
+
+  defp load_sidecar_positions(nil), do: []
+
+  defp load_sidecar_positions(cluster) do
+    # Get all token IDs from this cluster's outcomes
+    cluster_tokens =
+      cluster.outcomes
+      |> parse_outcomes()
+      |> Enum.map(fn o -> o["token_id"] end)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    # Filter sidecar positions to only those matching this cluster
+    :persistent_term.get(:sidecar_positions, [])
+    |> Enum.filter(fn p ->
+      asset = p["asset"] || p["assetId"] || p["token_id"]
+      size = p["size"] || p["currentValue"] || 0
+      MapSet.member?(cluster_tokens, asset) and is_number(size) and size > 0
+    end)
   end
 
   defp compute_distribution(station_code, cluster, temp_unit) do
@@ -147,12 +180,39 @@ defmodule WeatherEdgeWeb.StationDetailLive do
     %{yes_sum: yes_sum, deviation: deviation, healthy: deviation <= 0.05}
   end
 
-  defp load_orderbook(nil, _cluster), do: nil
+  defp load_orderbook(db_positions, sidecar_positions, cluster) do
+    # Use first DB position's token_id, then sidecar position, then cluster's top outcome
+    token_id =
+      case db_positions do
+        [pos | _] ->
+          pos.token_id
 
-  defp load_orderbook(position, _cluster) do
-    case clob_client().get_orderbook(position.token_id) do
-      {:ok, book} -> book
-      {:error, _} -> nil
+        _ ->
+          case sidecar_positions do
+            [sp | _] -> sp["asset"] || sp["assetId"] || sp["token_id"]
+            _ -> top_outcome_token(cluster)
+          end
+      end
+
+    if token_id do
+      case clob_client().get_orderbook(token_id) do
+        {:ok, book} -> Map.put(book, :token_id, token_id)
+        {:error, _} -> nil
+      end
+    end
+  end
+
+  defp top_outcome_token(nil), do: nil
+
+  defp top_outcome_token(cluster) do
+    # Pick the outcome with the highest YES price (most active)
+    cluster.outcomes
+    |> parse_outcomes()
+    |> Enum.sort_by(fn o -> -(Map.get(o, "yes_price", 0.0)) end)
+    |> List.first()
+    |> case do
+      %{"token_id" => tid} when is_binary(tid) and tid != "" -> tid
+      _ -> nil
     end
   end
 
@@ -312,7 +372,9 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         <div class="rounded-lg border border-zinc-200 bg-white p-4">
           <h3 class="text-sm font-semibold text-zinc-700 mb-3">
             Orderbook
-            <span :if={@position} class="text-xs font-normal text-zinc-400 ml-1">(<%= @position.outcome_label %>)</span>
+            <span :if={@orderbook && @orderbook[:token_id]} class="text-xs font-normal text-zinc-400 ml-1">
+              (token: <%= String.slice(@orderbook.token_id, 0, 12) %>...)
+            </span>
           </h3>
           <%= if @orderbook do %>
             <div class="grid grid-cols-2 gap-4">
@@ -344,9 +406,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
               </p>
             <% end %>
           <% else %>
-            <p class="text-sm text-zinc-400">
-              <%= if @position, do: "Orderbook unavailable", else: "No position - orderbook not loaded" %>
-            </p>
+            <p class="text-sm text-zinc-400">Orderbook unavailable</p>
           <% end %>
         </div>
 
@@ -385,37 +445,80 @@ defmodule WeatherEdgeWeb.StationDetailLive do
           <% end %>
         </div>
 
-        <%!-- Position Info --%>
-        <div :if={@position} class="rounded-lg border border-zinc-200 bg-white p-4">
-          <h3 class="text-sm font-semibold text-zinc-700 mb-3">Position</h3>
-          <div class="grid grid-cols-4 gap-4 text-sm">
-            <div>
-              <p class="text-xs text-zinc-500">Outcome</p>
-              <p class="font-medium"><%= @position.outcome_label %> (<%= @position.side %>)</p>
-            </div>
-            <div>
-              <p class="text-xs text-zinc-500">Tokens / Avg Price</p>
-              <p class="font-medium"><%= format_price(@position.tokens) %> @ <%= format_price(@position.avg_buy_price) %></p>
-            </div>
-            <div>
-              <p class="text-xs text-zinc-500">Current Price</p>
-              <p class="font-medium"><%= format_price(@position.current_price) %></p>
-            </div>
-            <div>
-              <p class="text-xs text-zinc-500">Unrealized P&L</p>
-              <p class={[
-                "font-bold",
-                (@position.unrealized_pnl || 0) > 0 && "text-green-600",
-                (@position.unrealized_pnl || 0) < 0 && "text-red-500",
-                (@position.unrealized_pnl || 0) == 0 && "text-zinc-500"
-              ]}>
-                $<%= format_price(@position.unrealized_pnl || 0.0) %>
+        <%!-- DB Positions --%>
+        <div :if={@positions != []} class="rounded-lg border border-zinc-200 bg-white p-4">
+          <h3 class="text-sm font-semibold text-zinc-700 mb-3">
+            Positions (<%= length(@positions) %>)
+          </h3>
+          <div class="space-y-3">
+            <div :for={position <- @positions} class="rounded-md border border-zinc-100 bg-zinc-50 p-3">
+              <div class="grid grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p class="text-xs text-zinc-500">Outcome</p>
+                  <p class="font-medium"><%= position.outcome_label %> (<%= position.side %>)</p>
+                </div>
+                <div>
+                  <p class="text-xs text-zinc-500">Tokens / Avg Price</p>
+                  <p class="font-medium"><%= format_price(position.tokens) %> @ <%= format_price(position.avg_buy_price) %></p>
+                </div>
+                <div>
+                  <p class="text-xs text-zinc-500">Current Price</p>
+                  <p class="font-medium"><%= format_price(position.current_price) %></p>
+                </div>
+                <div>
+                  <p class="text-xs text-zinc-500">Unrealized P&L</p>
+                  <p class={[
+                    "font-bold",
+                    (position.unrealized_pnl || 0) > 0 && "text-green-600",
+                    (position.unrealized_pnl || 0) < 0 && "text-red-500",
+                    (position.unrealized_pnl || 0) == 0 && "text-zinc-500"
+                  ]}>
+                    $<%= format_price(position.unrealized_pnl || 0.0) %>
+                  </p>
+                </div>
+              </div>
+              <p :if={position.recommendation} class="mt-2 text-xs text-zinc-500">
+                Recommendation: <span class="font-semibold text-zinc-700"><%= position.recommendation %></span>
               </p>
             </div>
           </div>
-          <p :if={@position.recommendation} class="mt-2 text-xs text-zinc-500">
-            Recommendation: <span class="font-semibold text-zinc-700"><%= @position.recommendation %></span>
-          </p>
+        </div>
+
+        <%!-- Sidecar (Polymarket) Positions --%>
+        <div :if={@sidecar_positions != []} class="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+          <h3 class="text-sm font-semibold text-indigo-700 mb-3">
+            Polymarket Positions (<%= length(@sidecar_positions) %>)
+          </h3>
+          <div class="space-y-3">
+            <div :for={sp <- @sidecar_positions} class="rounded-md border border-indigo-100 bg-white p-3">
+              <div class="grid grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p class="text-xs text-zinc-500">Outcome</p>
+                  <p class="font-medium"><%= sp["title"] || sp["outcome"] || "—" %></p>
+                </div>
+                <div>
+                  <p class="text-xs text-zinc-500">Size / Avg Price</p>
+                  <p class="font-medium"><%= sp["size"] || "—" %> @ $<%= format_sidecar_price(sp["avgPrice"]) %></p>
+                </div>
+                <div>
+                  <p class="text-xs text-zinc-500">Current Price</p>
+                  <p class="font-medium">$<%= format_sidecar_price(sp["curPrice"]) %></p>
+                </div>
+                <div>
+                  <p class="text-xs text-zinc-500">P&L</p>
+                  <% pnl = parse_sidecar_float(sp["cashPnl"]) %>
+                  <p class={[
+                    "font-bold",
+                    pnl > 0 && "text-green-600",
+                    pnl < 0 && "text-red-500",
+                    pnl == 0 && "text-zinc-500"
+                  ]}>
+                    $<%= format_sidecar_price(sp["cashPnl"]) %>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <%!-- Action Buttons
@@ -495,6 +598,24 @@ defmodule WeatherEdgeWeb.StationDetailLive do
 
     # Combine and sort: model entries first (by prob desc), then market-only (by label)
     model_entries ++ Enum.sort_by(market_only, fn {label, _} -> label end)
+  end
+
+  defp format_sidecar_price(nil), do: "—"
+  defp format_sidecar_price(val) when is_number(val), do: :erlang.float_to_binary(val / 1, decimals: 2)
+  defp format_sidecar_price(val) when is_binary(val) do
+    case Float.parse(val) do
+      {f, _} -> :erlang.float_to_binary(f, decimals: 2)
+      :error -> val
+    end
+  end
+
+  defp parse_sidecar_float(nil), do: 0.0
+  defp parse_sidecar_float(val) when is_number(val), do: val
+  defp parse_sidecar_float(val) when is_binary(val) do
+    case Float.parse(val) do
+      {f, _} -> f
+      :error -> 0.0
+    end
   end
 
   defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
