@@ -227,3 +227,16 @@
   - Configurable base URL via `:data_api_url` app env key
   - Balance endpoint returns balance as string, needs Float.parse (same pattern as ClobClient prices)
 ---
+
+## 2026-03-06 - US-018
+- Implemented: Signal detector and alerter for mispricing detection
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/detector.ex` - Detector with detect_mispricings/2, edge calculation (YES/NO), alert levels (opportunity/strong/extreme/safe_no), structural mispricing flag
+  - `weather_edge/lib/weather_edge/signals/alerter.ex` - Alerter with broadcast_signals/2, PubSub broadcasts to "station:CODE:signal" topic
+  - `weather_edge/lib/weather_edge/signals.ex` - Signals context with create_signal/1, store_signals/3, list_signals/1, list_signals_for_cluster/2
+- **Learnings for future iterations:**
+  - MarketCluster outcomes is a list of maps with string keys: "outcome_label", "yes_price", "no_price", "clob_token_ids", "volume", "liquidity"
+  - Distribution.probability_for/2 returns 0.0 for unknown outcomes, so Detector handles missing labels gracefully
+  - Edge calculation: edge_yes = model_prob - yes_price, edge_no = (1 - model_prob) - no_price; pick the side with greater positive edge
+  - Alert level thresholds: opportunity (edge >= 0.08, liquidity > $20), strong (>= 0.15, liquidity > $20), extreme (>= 0.25), safe_no (model_prob < 0.05, no_price <= 0.92)
+---
