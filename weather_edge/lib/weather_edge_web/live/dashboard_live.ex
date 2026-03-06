@@ -6,11 +6,11 @@ defmodule WeatherEdgeWeb.DashboardLive do
   alias WeatherEdge.Trading.Position
   alias WeatherEdge.PubSubHelper
 
-  import Ecto.Query
   import WeatherEdgeWeb.Components.HeaderComponent
   import WeatherEdgeWeb.Components.AddStationModalComponent
   import WeatherEdgeWeb.Components.StationCardComponent
   import WeatherEdgeWeb.Components.SignalFeedComponent
+  import WeatherEdgeWeb.Components.PortfolioSummaryComponent
 
   @impl true
   def mount(_params, _session, socket) do
@@ -21,10 +21,10 @@ defmodule WeatherEdgeWeb.DashboardLive do
         {station.code, Markets.active_clusters_for_station(station.code)}
       end)
 
+    all_positions = WeatherEdge.Repo.all(Position)
+
     positions =
-      Position
-      |> where([p], p.status == "open")
-      |> WeatherEdge.Repo.all()
+      Enum.filter(all_positions, &(&1.status == "open"))
 
     positions_by_cluster =
       Enum.into(positions, %{}, fn p -> {p.market_cluster_id, p} end)
@@ -39,6 +39,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
      assign(socket,
        stations: stations,
        clusters_by_station: clusters_by_station,
+       all_positions: all_positions,
        positions: positions,
        positions_by_cluster: positions_by_cluster,
        signals: [],
@@ -84,14 +85,18 @@ defmodule WeatherEdgeWeb.DashboardLive do
   end
 
   def handle_info({:position_updated, position}, socket) do
-    positions =
-      Enum.map(socket.assigns.positions, fn p ->
+    all_positions =
+      Enum.map(socket.assigns.all_positions, fn p ->
         if p.id == position.id, do: position, else: p
       end)
 
-    positions_by_cluster = Map.put(socket.assigns.positions_by_cluster, position.market_cluster_id, position)
+    positions =
+      Enum.filter(all_positions, &(&1.status == "open"))
 
-    {:noreply, assign(socket, positions: positions, positions_by_cluster: positions_by_cluster)}
+    positions_by_cluster =
+      Enum.into(positions, %{}, fn p -> {p.market_cluster_id, p} end)
+
+    {:noreply, assign(socket, all_positions: all_positions, positions: positions, positions_by_cluster: positions_by_cluster)}
   end
 
   def handle_info({:forecast_updated, _station_code}, socket) do
@@ -254,10 +259,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
     <div class="space-y-6">
       <.dashboard_header balance={@balance} wallet_address={@wallet_address} />
 
-      <!-- Portfolio Summary (placeholder) -->
-      <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-        <p class="text-sm text-zinc-500">Portfolio summary will appear here</p>
-      </div>
+      <.portfolio_summary positions={@all_positions} balance={@balance} />
 
       <!-- Station Cards -->
       <div class="space-y-4">
