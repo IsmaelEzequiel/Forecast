@@ -45,7 +45,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
        positions: positions,
        positions_by_cluster: positions_by_cluster,
        sidecar_positions: sidecar_positions,
-       signals: [],
+       signals: WeatherEdge.Signals.list_recent(limit: 50),
        balance: cached_balance,
        wallet_address: wallet_address,
        show_add_station_modal: false,

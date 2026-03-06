@@ -49,6 +49,19 @@ defmodule WeatherEdge.Signals do
   end
 
   @doc """
+  Lists recent signals across all stations.
+  """
+  @spec list_recent(keyword()) :: [Signal.t()]
+  def list_recent(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    Signal
+    |> order_by([s], desc: s.computed_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
+  @doc """
   Lists recent signals for a station.
   """
   @spec list_signals(String.t(), keyword()) :: [Signal.t()]

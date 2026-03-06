@@ -11,9 +11,18 @@ defmodule WeatherEdge.Signals.Alerter do
   @spec broadcast_signals(String.t(), [map()]) :: :ok
   def broadcast_signals(station_code, signals) when is_binary(station_code) do
     topic = PubSubHelper.station_signal(station_code)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     Enum.each(signals, fn signal ->
-      PubSubHelper.broadcast(topic, {:signal_detected, signal})
+      enriched =
+        signal
+        |> Map.put(:station_code, station_code)
+        |> Map.put(:computed_at, now)
+        |> Map.put_new_lazy(:market_price, fn ->
+          Map.get(signal, :market_yes_price, Map.get(signal, :market_price))
+        end)
+
+      PubSubHelper.broadcast(topic, {:signal_detected, enriched})
     end)
 
     :ok
