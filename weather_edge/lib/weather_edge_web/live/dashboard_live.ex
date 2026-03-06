@@ -8,6 +8,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
 
   import Ecto.Query
   import WeatherEdgeWeb.Components.HeaderComponent
+  import WeatherEdgeWeb.Components.AddStationModalComponent
 
   @impl true
   def mount(_params, _session, socket) do
@@ -37,7 +38,12 @@ defmodule WeatherEdgeWeb.DashboardLive do
        signals: [],
        balance: nil,
        wallet_address: wallet_address,
-       show_add_station_modal: false
+       show_add_station_modal: false,
+       modal_step: :input,
+       modal_code: "",
+       modal_loading: false,
+       modal_error: nil,
+       modal_station_info: nil
      )}
   end
 
@@ -95,13 +101,92 @@ defmodule WeatherEdgeWeb.DashboardLive do
     {:noreply, assign(socket, clusters_by_station: clusters_by_station)}
   end
 
+  def handle_info({:do_validate_station, code}, socket) do
+    alias WeatherEdge.Forecasts.MetarClient
+
+    case MetarClient.validate_station(code) do
+      {:ok, info} ->
+        {:noreply,
+         assign(socket,
+           modal_loading: false,
+           modal_step: :confirm,
+           modal_station_info: info
+         )}
+
+      {:error, :invalid_station} ->
+        {:noreply,
+         assign(socket,
+           modal_loading: false,
+           modal_error: "Invalid ICAO code"
+         )}
+
+      {:error, _reason} ->
+        {:noreply,
+         assign(socket,
+           modal_loading: false,
+           modal_error: "Could not validate station. Please try again."
+         )}
+    end
+  end
+
   def handle_info(_msg, socket) do
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("toggle_add_station_modal", _params, socket) do
-    {:noreply, assign(socket, show_add_station_modal: !socket.assigns.show_add_station_modal)}
+    {:noreply,
+     assign(socket,
+       show_add_station_modal: true,
+       modal_step: :input,
+       modal_code: "",
+       modal_loading: false,
+       modal_error: nil,
+       modal_station_info: nil
+     )}
+  end
+
+  def handle_event("close_add_station_modal", _params, socket) do
+    {:noreply, assign(socket, show_add_station_modal: false)}
+  end
+
+  def handle_event("validate_station", %{"code" => code}, socket) do
+    code = String.upcase(String.trim(code))
+
+    if String.length(code) < 3 do
+      {:noreply, assign(socket, modal_error: "Please enter a valid ICAO code (3-4 characters)")}
+    else
+      send(self(), {:do_validate_station, code})
+      {:noreply, assign(socket, modal_loading: true, modal_error: nil, modal_code: code)}
+    end
+  end
+
+  def handle_event("confirm_add_station", _params, socket) do
+    case Stations.create_station(%{code: socket.assigns.modal_code}) do
+      {:ok, _station} ->
+        {:noreply, assign(socket, show_add_station_modal: false)}
+
+      {:error, :invalid_station} ->
+        {:noreply, assign(socket, modal_step: :input, modal_error: "Failed to create station. Please try again.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        error = changeset_error_message(changeset)
+        {:noreply, assign(socket, modal_step: :input, modal_error: error)}
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, modal_step: :input, modal_error: "An error occurred. Please try again.")}
+    end
+  end
+
+  def handle_event("reset_add_station", _params, socket) do
+    {:noreply,
+     assign(socket,
+       modal_step: :input,
+       modal_code: "",
+       modal_loading: false,
+       modal_error: nil,
+       modal_station_info: nil
+     )}
   end
 
   def handle_event("sell_position", %{"position_id" => _position_id}, socket) do
@@ -159,6 +244,15 @@ defmodule WeatherEdgeWeb.DashboardLive do
         <h3 class="text-sm font-semibold text-zinc-700 mb-2">Signal Feed</h3>
         <p class="text-sm text-zinc-400">Mispricing signals will appear here</p>
       </div>
+
+      <.add_station_modal
+        show={@show_add_station_modal}
+        step={@modal_step}
+        code={@modal_code}
+        loading={@modal_loading}
+        error={@modal_error}
+        station_info={@modal_station_info}
+      />
     </div>
     """
   end
@@ -177,5 +271,14 @@ defmodule WeatherEdgeWeb.DashboardLive do
     PubSubHelper.subscribe(PubSubHelper.station_signal(station.code))
     PubSubHelper.subscribe(PubSubHelper.station_auto_buy(station.code))
     PubSubHelper.subscribe(PubSubHelper.station_price_update(station.code))
+  end
+
+  defp changeset_error_message(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+    |> Enum.map_join(", ", fn {field, errors} -> "#{field} #{Enum.join(errors, ", ")}" end)
   end
 end
