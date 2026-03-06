@@ -9,17 +9,39 @@ services:
       POSTGRES_DB: weather_edge
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   app:
     build: .
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file:
       - .env
     ports:
       - "4000:4000"
     environment:
       DATABASE_URL: ecto://postgres:postgres@db:5432/weather_edge
+      PHX_HOST: ${PHX_HOST:-localhost}
+      PORT: "4000"
+      SIDECAR_URL: http://sidecar:4001
+
+  sidecar:
+    build: ./sidecar
+    depends_on:
+      app:
+        condition: service_started
+    env_file:
+      - .env
+    ports:
+      - "4001:4001"
+    environment:
+      PHOENIX_URL: http://app:4000
+      SIDECAR_PORT: "4001"
 
 volumes:
   pgdata:

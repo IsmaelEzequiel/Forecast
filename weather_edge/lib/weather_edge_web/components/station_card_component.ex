@@ -12,7 +12,7 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
     ~H"""
     <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold text-zinc-900">
+        <h2 class="text-sm font-semibold text-zinc-900">
           <%= @station.code %> — <%= @station.city %>
         </h2>
 
@@ -42,6 +42,15 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
               Auto-Buy
             </span>
           </label>
+
+          <button
+            phx-click="delete_station"
+            phx-value-code={@station.code}
+            data-confirm={"Delete station #{@station.code}? This cannot be undone."}
+            class="text-xs text-red-400 hover:text-red-600"
+          >
+            &times;
+          </button>
         </div>
       </div>
 
@@ -95,13 +104,22 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
         />
       </div>
 
-      <p :if={@clusters == []} class="text-sm text-zinc-400">No active events</p>
+      <div :if={@clusters == []} class="flex items-center gap-3">
+        <p class="text-sm text-zinc-400">No active events</p>
+        <button
+          phx-click="scan_station"
+          phx-value-code={@station.code}
+          class="text-xs text-blue-600 hover:text-blue-800 underline"
+        >
+          Scan Now
+        </button>
+      </div>
     </div>
     """
   end
 
-  defp format_balance(balance) when is_float(balance) do
-    :erlang.float_to_binary(balance, decimals: 2)
+  defp format_balance(balance) when is_number(balance) do
+    :erlang.float_to_binary(balance / 1, decimals: 2)
   end
 
   defp format_balance(_), do: "0.00"

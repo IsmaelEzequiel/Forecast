@@ -45,6 +45,13 @@ defmodule WeatherEdge.Markets do
     |> Repo.all()
   end
 
+  def delete_market_cluster(id) do
+    case Repo.get(MarketCluster, id) do
+      nil -> {:error, :not_found}
+      cluster -> Repo.delete(cluster)
+    end
+  end
+
   def mark_resolved(market_cluster_id, resolution_temp) do
     case Repo.get(MarketCluster, market_cluster_id) do
       nil ->

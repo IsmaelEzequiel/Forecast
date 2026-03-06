@@ -7,7 +7,7 @@ defmodule WeatherEdge.Trading.PositionTracker do
   require Logger
 
   alias WeatherEdge.Repo
-  alias WeatherEdge.Trading.{ClobClient, Position}
+  alias WeatherEdge.Trading.Position
   alias WeatherEdge.Probability.Engine
 
   @doc """
@@ -17,7 +17,7 @@ defmodule WeatherEdge.Trading.PositionTracker do
   """
   @spec update_position(Position.t()) :: {:ok, Position.t()} | {:error, term()}
   def update_position(%Position{} = position) do
-    case ClobClient.get_price(position.token_id, "sell") do
+    case clob_client().get_price(position.token_id, "sell") do
       {:ok, current_price} ->
         unrealized_pnl = (current_price - position.avg_buy_price) * position.tokens
         unrealized_pnl_pct = if position.avg_buy_price > 0, do: unrealized_pnl / position.total_cost_usdc * 100, else: 0.0
@@ -88,7 +88,7 @@ defmodule WeatherEdge.Trading.PositionTracker do
   def sell_position(%Position{status: "open"} = position) do
     sell_price = position.current_price || position.avg_buy_price
 
-    case ClobClient.place_order(position.token_id, "SELL", sell_price, position.tokens) do
+    case clob_client().place_order(position.token_id, "SELL", sell_price, position.tokens) do
       {:ok, response} ->
         order_id = response["orderID"] || response["order_id"] || response["id"]
 
@@ -169,4 +169,6 @@ defmodule WeatherEdge.Trading.PositionTracker do
       true -> "MONITORING"
     end
   end
+
+  defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
 end

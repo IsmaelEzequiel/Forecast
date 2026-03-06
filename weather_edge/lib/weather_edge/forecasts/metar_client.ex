@@ -17,6 +17,7 @@ defmodule WeatherEdge.Forecasts.MetarClient do
 
     case Req.get(url, params: [ids: code, format: "json"], receive_timeout: 10_000) do
       {:ok, %Req.Response{status: 200, body: [metar | _]}} ->
+        IO.inspect(metar)
         {:ok, parse_station_info(metar)}
 
       {:ok, %Req.Response{status: 200, body: []}} ->
@@ -65,6 +66,33 @@ defmodule WeatherEdge.Forecasts.MetarClient do
     end
   end
 
+  @doc """
+  Fetches the observed high temperature for today from METAR history (last 24h).
+  """
+  @spec get_todays_high(String.t()) :: {:ok, number()} | {:error, atom()}
+  def get_todays_high(code) when is_binary(code) do
+    url = "#{base_url()}/api/data/metar"
+
+    case Req.get(url, params: [ids: code, format: "json", hours: 24], receive_timeout: 10_000) do
+      {:ok, %Req.Response{status: 200, body: body}} when is_list(body) and body != [] ->
+        temps =
+          body
+          |> Enum.map(fn m -> parse_float(m["temp"]) end)
+          |> Enum.reject(&is_nil/1)
+
+        case temps do
+          [] -> {:error, :no_data}
+          temps -> {:ok, Enum.max(temps)}
+        end
+
+      {:ok, %Req.Response{status: 200}} ->
+        {:error, :no_data}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp base_url do
     Application.get_env(:weather_edge, :forecasts)[:metar_base_url] || @base_url
   end
@@ -104,10 +132,58 @@ defmodule WeatherEdge.Forecasts.MetarClient do
   defp calculate_humidity(_, _), do: nil
 
   defp extract_country(metar) do
-    # The METAR API doesn't always include country directly;
-    # fall back to nil if not present
-    metar["country"] || metar["state"]
+    metar["country"] || metar["state"] || country_from_icao(metar["icaoId"])
   end
+
+  defp country_from_icao(nil), do: "Unknown"
+
+  defp country_from_icao(<<prefix::binary-size(2), _rest::binary>>) do
+    case prefix do
+      "K" <> _ -> "US"
+      "PA" -> "US"
+      "PH" -> "US"
+      "CY" -> "CA"
+      "CW" -> "CA"
+      "CZ" -> "CA"
+      "EG" -> "GB"
+      "LF" -> "FR"
+      "ED" -> "DE"
+      "LI" -> "IT"
+      "LE" -> "ES"
+      "LP" -> "PT"
+      "EH" -> "NL"
+      "EB" -> "BE"
+      "LS" -> "CH"
+      "LO" -> "AT"
+      "RJ" -> "JP"
+      "RK" -> "KR"
+      "ZB" -> "CN"
+      "ZS" -> "CN"
+      "ZG" -> "CN"
+      "VI" -> "IN"
+      "VA" -> "IN"
+      "SB" -> "BR"
+      "SA" -> "AR"
+      "SC" -> "CL"
+      "SK" -> "CO"
+      "MM" -> "MX"
+      "YM" -> "AU"
+      "YS" -> "AU"
+      "YB" -> "AU"
+      "NZ" -> "NZ"
+      "FA" -> "ZA"
+      _ -> prefix
+    end
+  end
+
+  defp country_from_icao(<<prefix::binary-size(1), _rest::binary>>) do
+    case prefix do
+      "K" -> "US"
+      _ -> prefix
+    end
+  end
+
+  defp country_from_icao(_), do: "Unknown"
 
   defp parse_float(nil), do: nil
   defp parse_float(val) when is_float(val), do: val

@@ -2,37 +2,17 @@ defmodule WeatherEdgeWeb.Components.PortfolioSummaryComponent do
   use Phoenix.Component
 
   attr :positions, :list, required: true
+  attr :sidecar_positions, :list, default: []
   attr :balance, :float, default: nil
 
   def portfolio_summary(assigns) do
-    open_positions = Enum.filter(assigns.positions, &(&1.status == "open"))
-    closed_positions = Enum.filter(assigns.positions, &(&1.status != "open"))
-
-    open_count = length(open_positions)
-    total_invested = Enum.reduce(open_positions, 0.0, &(&1.total_cost_usdc + &2))
-
-    current_value =
-      Enum.reduce(open_positions, 0.0, fn p, acc ->
-        price = p.current_price || p.avg_buy_price
-        acc + price * p.tokens
-      end)
-
-    unrealized_pnl = current_value - total_invested
-
-    unrealized_pnl_pct =
-      if total_invested > 0,
-        do: unrealized_pnl / total_invested * 100,
-        else: 0.0
-
-    today = Date.utc_today()
-
-    today_realized =
-      closed_positions
-      |> Enum.filter(fn p -> p.closed_at && DateTime.to_date(p.closed_at) == today end)
-      |> Enum.reduce(0.0, fn p, acc -> acc + (p.realized_pnl || 0.0) end)
-
-    total_realized =
-      Enum.reduce(closed_positions, 0.0, fn p, acc -> acc + (p.realized_pnl || 0.0) end)
+    {open_count, total_invested, current_value, unrealized_pnl, unrealized_pnl_pct,
+     today_realized, total_realized} =
+      if assigns.sidecar_positions != [] do
+        compute_from_sidecar(assigns.sidecar_positions)
+      else
+        compute_from_db(assigns.positions)
+      end
 
     assigns =
       assigns
@@ -82,6 +62,78 @@ defmodule WeatherEdgeWeb.Components.PortfolioSummaryComponent do
       </div>
     </div>
     """
+  end
+
+  defp compute_from_sidecar(positions) do
+    open_count = length(positions)
+
+    total_invested =
+      Enum.reduce(positions, 0.0, fn p, acc ->
+        acc + to_float(p["initialValue"])
+      end)
+
+    current_value =
+      Enum.reduce(positions, 0.0, fn p, acc ->
+        acc + to_float(p["currentValue"])
+      end)
+
+    unrealized_pnl =
+      Enum.reduce(positions, 0.0, fn p, acc ->
+        acc + to_float(p["cashPnl"])
+      end)
+
+    unrealized_pnl_pct =
+      if total_invested > 0, do: unrealized_pnl / total_invested * 100, else: 0.0
+
+    total_realized =
+      Enum.reduce(positions, 0.0, fn p, acc ->
+        acc + to_float(p["realizedPnl"])
+      end)
+
+    {open_count, total_invested, current_value, unrealized_pnl, unrealized_pnl_pct, total_realized,
+     total_realized}
+  end
+
+  defp compute_from_db(positions) do
+    open_positions = Enum.filter(positions, &(&1.status == "open"))
+    closed_positions = Enum.filter(positions, &(&1.status != "open"))
+
+    open_count = length(open_positions)
+    total_invested = Enum.reduce(open_positions, 0.0, &(&1.total_cost_usdc + &2))
+
+    current_value =
+      Enum.reduce(open_positions, 0.0, fn p, acc ->
+        price = p.current_price || p.avg_buy_price
+        acc + price * p.tokens
+      end)
+
+    unrealized_pnl = current_value - total_invested
+
+    unrealized_pnl_pct =
+      if total_invested > 0, do: unrealized_pnl / total_invested * 100, else: 0.0
+
+    today = Date.utc_today()
+
+    today_realized =
+      closed_positions
+      |> Enum.filter(fn p -> p.closed_at && DateTime.to_date(p.closed_at) == today end)
+      |> Enum.reduce(0.0, fn p, acc -> acc + (p.realized_pnl || 0.0) end)
+
+    total_realized =
+      Enum.reduce(closed_positions, 0.0, fn p, acc -> acc + (p.realized_pnl || 0.0) end)
+
+    {open_count, total_invested, current_value, unrealized_pnl, unrealized_pnl_pct,
+     today_realized, total_realized}
+  end
+
+  defp to_float(nil), do: 0.0
+  defp to_float(val) when is_float(val), do: val
+  defp to_float(val) when is_integer(val), do: val / 1
+  defp to_float(val) when is_binary(val) do
+    case Float.parse(val) do
+      {f, _} -> f
+      :error -> 0.0
+    end
   end
 
   defp format_usd(value) do

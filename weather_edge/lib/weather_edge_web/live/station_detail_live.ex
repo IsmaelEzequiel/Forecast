@@ -5,7 +5,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
 
   alias WeatherEdge.{Repo, Stations, Forecasts}
   alias WeatherEdge.Markets.MarketCluster
-  alias WeatherEdge.Trading.{Position, ClobClient, PositionTracker}
+  alias WeatherEdge.Trading.{Position, PositionTracker}
   alias WeatherEdge.Probability.{Engine, Distribution}
   alias WeatherEdge.Forecasts.MetarClient
   alias WeatherEdge.PubSubHelper
@@ -37,6 +37,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
            market_health: nil,
            orderbook: nil,
            metar: nil,
+           todays_high: nil,
            loading: true,
            page_title: "#{code} - #{cluster && cluster.target_date}"
          )}
@@ -54,11 +55,12 @@ defmodule WeatherEdgeWeb.StationDetailLive do
     %{station: station, cluster: cluster, position: position} = socket.assigns
 
     if cluster do
-      distribution = compute_distribution(station.code, cluster)
+      distribution = compute_distribution(station.code, cluster, station.temp_unit || "C")
       model_snapshots = load_model_snapshots(station.code, cluster.target_date)
       market_health = compute_market_health(cluster)
       orderbook = load_orderbook(position, cluster)
       metar = load_metar(station.code)
+      todays_high = load_todays_high(station.code)
 
       {:noreply,
        assign(socket,
@@ -67,6 +69,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
          market_health: market_health,
          orderbook: orderbook,
          metar: metar,
+         todays_high: todays_high,
          loading: false
        )}
     else
@@ -126,8 +129,8 @@ defmodule WeatherEdgeWeb.StationDetailLive do
     |> Repo.one()
   end
 
-  defp compute_distribution(station_code, cluster) do
-    case Engine.compute_distribution(station_code, cluster.target_date) do
+  defp compute_distribution(station_code, cluster, temp_unit) do
+    case Engine.compute_distribution(station_code, cluster.target_date, temp_unit: temp_unit) do
       {:ok, dist} -> dist
       {:error, _} -> nil
     end
@@ -147,7 +150,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
   defp load_orderbook(nil, _cluster), do: nil
 
   defp load_orderbook(position, _cluster) do
-    case ClobClient.get_orderbook(position.token_id) do
+    case clob_client().get_orderbook(position.token_id) do
       {:ok, book} -> book
       {:error, _} -> nil
     end
@@ -156,6 +159,13 @@ defmodule WeatherEdgeWeb.StationDetailLive do
   defp load_metar(station_code) do
     case MetarClient.get_current_conditions(station_code) do
       {:ok, conditions} -> conditions
+      {:error, _} -> nil
+    end
+  end
+
+  defp load_todays_high(station_code) do
+    case MetarClient.get_todays_high(station_code) do
+      {:ok, high} -> high
       {:error, _} -> nil
     end
   end
@@ -203,10 +213,20 @@ defmodule WeatherEdgeWeb.StationDetailLive do
 
       <div :if={@cluster && !@loading} class="space-y-4">
         <div class="rounded-lg border border-zinc-200 bg-white p-4">
-          <h2 class="text-lg font-semibold text-zinc-700 mb-1">
-            <%= @cluster.title || "Event: #{@cluster.target_date}" %>
-          </h2>
-          <p class="text-xs text-zinc-400">Event ID: <%= @cluster.event_id %></p>
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-zinc-700 mb-1">
+                <%= @cluster.title || "Event: #{@cluster.target_date}" %>
+              </h2>
+              <p class="text-xs text-zinc-400">Event ID: <%= @cluster.event_id %></p>
+            </div>
+            <div :if={@todays_high} class="text-right">
+              <% display_high = if @station.temp_unit == "F", do: @todays_high * 9 / 5 + 32, else: @todays_high %>
+              <p class="text-xs text-zinc-500">Observed High (24h)</p>
+              <p class="text-3xl font-bold text-zinc-900"><%= round(display_high) %>°<%= @station.temp_unit || "C" %></p>
+              <p class="text-xs text-zinc-400"><%= :erlang.float_to_binary(display_high / 1, decimals: 1) %>°<%= @station.temp_unit || "C" %> raw</p>
+            </div>
+          </div>
         </div>
 
         <%!-- Temperature Distribution --%>
@@ -220,7 +240,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
                 <span class="text-right">Market</span>
                 <span>Distribution</span>
               </div>
-              <%= for {label, model_prob} <- Distribution.top_n(@distribution, 20) do %>
+              <%= for {label, model_prob} <- merged_distribution(@distribution, @cluster) do %>
                 <% market_price = find_market_price(@cluster, label) %>
                 <% edge = if market_price, do: model_prob - market_price, else: nil %>
                 <div class="grid grid-cols-[80px_60px_60px_1fr] gap-2 items-center text-sm">
@@ -398,23 +418,24 @@ defmodule WeatherEdgeWeb.StationDetailLive do
           </p>
         </div>
 
-        <%!-- Action Buttons --%>
-        <div class="flex gap-4">
-          <button
-            :if={@position && @position.status == "open"}
-            phx-click="sell_position"
-            data-confirm="Are you sure you want to sell this position?"
-            class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
-          >
-            SELL POSITION
-          </button>
-          <button
-            phx-click="buy_more"
-            class="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
-          >
-            BUY MORE
-          </button>
-        </div>
+        <%!-- Action Buttons
+          <div class="flex gap-4">
+            <button
+              :if={@position && @position.status == "open"}
+              phx-click="sell_position"
+              data-confirm="Are you sure you want to sell this position?"
+              class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
+            >
+              SELL POSITION
+            </button>
+            <button
+              phx-click="buy_more"
+              class="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
+            >
+              BUY MORE
+            </button>
+          </div>
+        --%>
       </div>
 
       <div :if={is_nil(@cluster) && !@loading} class="text-center py-12 text-zinc-400">
@@ -427,7 +448,12 @@ defmodule WeatherEdgeWeb.StationDetailLive do
   defp find_market_price(cluster, label) do
     outcomes = parse_outcomes(cluster.outcomes)
 
-    case Enum.find(outcomes, fn o -> o["outcome_label"] == label end) do
+    match =
+      Enum.find(outcomes, fn o ->
+        o["outcome_label"] == label || extract_temp_label(o["outcome_label"]) == label
+      end)
+
+    case match do
       %{"yes_price" => price} when is_number(price) -> price
       %{"yes_price" => price} when is_binary(price) ->
         case Float.parse(price) do
@@ -437,4 +463,39 @@ defmodule WeatherEdgeWeb.StationDetailLive do
       _ -> nil
     end
   end
+
+  defp extract_temp_label(nil), do: nil
+
+  defp extract_temp_label(label) when is_binary(label) do
+    case Regex.run(~r/(\d+)\s*°?\s*([CF])\s+(or below|or higher)/i, label) do
+      [_, temp, unit, suffix] ->
+        "#{temp}#{String.upcase(unit)} #{String.downcase(suffix)}"
+
+      _ ->
+        case Regex.run(~r/(\d+)\s*°?\s*([CF])/i, label) do
+          [_, temp, unit] -> "#{temp}#{String.upcase(unit)}"
+          _ -> label
+        end
+    end
+  end
+
+  defp merged_distribution(distribution, cluster) do
+    model_entries = Distribution.top_n(distribution, 20)
+    model_labels = MapSet.new(model_entries, fn {label, _} -> label end)
+
+    # Get market outcomes not already in model distribution
+    market_only =
+      cluster.outcomes
+      |> parse_outcomes()
+      |> Enum.map(fn o -> extract_temp_label(o["outcome_label"]) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(fn label -> MapSet.member?(model_labels, label) end)
+      |> Enum.uniq()
+      |> Enum.map(fn label -> {label, 0.0} end)
+
+    # Combine and sort: model entries first (by prob desc), then market-only (by label)
+    model_entries ++ Enum.sort_by(market_only, fn {label, _} -> label end)
+  end
+
+  defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
 end

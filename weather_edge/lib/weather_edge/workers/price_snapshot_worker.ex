@@ -13,7 +13,7 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
 
   alias WeatherEdge.Markets.{MarketCluster, MarketSnapshot}
   alias WeatherEdge.Repo
-  alias WeatherEdge.Trading.{ClobClient, Position}
+  alias WeatherEdge.Trading.Position
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -98,8 +98,10 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
       )
   end
 
+  defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
+
   defp fetch_price(token_id, side) do
-    case ClobClient.get_price(token_id, side) do
+    case clob_client().get_price(token_id, side) do
       {:ok, price} -> price
       {:error, _reason} -> nil
     end

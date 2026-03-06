@@ -61,6 +61,10 @@ config :weather_edge, WeatherEdgeWeb.Endpoint,
     ]
   ]
 
+# Route orders through the Node.js sidecar (uses Polymarket JS SDK)
+config :weather_edge, :clob_client, WeatherEdge.Trading.SidecarClient
+config :weather_edge, :sidecar_url, "http://localhost:4001"
+
 # Enable dev routes for dashboard and mailbox
 config :weather_edge, dev_routes: true
 

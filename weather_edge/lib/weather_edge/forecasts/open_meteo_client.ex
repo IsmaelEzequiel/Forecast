@@ -7,32 +7,62 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
   @models ["gfs", "ecmwf_ifs", "icon_global", "jma", "gem_global"]
 
   @spec fetch_all_models(float(), float(), pos_integer()) ::
-          {:ok, %{String.t() => float()}} | {:error, term()}
+          {:ok, map()} | {:error, term()}
   def fetch_all_models(latitude, longitude, forecast_days \\ 7) do
-    url = "#{base_url()}/forecast"
+    results =
+      models()
+      |> Task.async_stream(
+        fn model -> {model, fetch_single_model(latitude, longitude, model, forecast_days)} end,
+        timeout: 30_000,
+        max_concurrency: 3
+      )
+      |> Enum.reduce(%{}, fn
+        {:ok, {model, {:ok, body}}}, acc ->
+          Map.put(acc, "hourly_#{model}", Map.get(body, "hourly", %{}))
 
-    params = [
-      latitude: latitude,
-      longitude: longitude,
-      hourly: "temperature_2m",
-      models: Enum.join(models(), ","),
-      forecast_days: forecast_days,
-      timezone: "UTC"
-    ]
+        _, acc ->
+          acc
+      end)
 
-    case Req.get(url, params: params, receive_timeout: 30_000) do
+    if results == %{} do
+      {:error, :all_models_failed}
+    else
+      {:ok, results}
+    end
+  end
+
+  defp fetch_single_model(latitude, longitude, model, forecast_days) do
+    # Open-Meteo uses different base paths for some models
+    {url, params} = model_url_and_params(model, latitude, longitude, forecast_days)
+
+    case Req.get(url, params: params, receive_timeout: 15_000) do
       {:ok, %Req.Response{status: 200, body: body}} when is_map(body) ->
         {:ok, body}
 
       {:ok, %Req.Response{status: status}} ->
         {:error, {:api_error, status}}
 
-      {:error, %Req.TransportError{reason: :timeout}} ->
-        {:error, :timeout}
-
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp model_url_and_params(model, lat, lon, days) do
+    base = base_url()
+
+    {endpoint, extra} =
+      case model do
+        "ecmwf_ifs" -> {"/ecmwf", []}
+        "icon_global" -> {"/dwd-icon", []}
+        "jma" -> {"/jma", []}
+        "gem_global" -> {"/gem", []}
+        _ -> {"/forecast", []}
+      end
+
+    params =
+      [latitude: lat, longitude: lon, hourly: "temperature_2m", forecast_days: days, timezone: "UTC"] ++ extra
+
+    {"#{base}#{endpoint}", params}
   end
 
   @spec extract_daily_max(map(), Date.t()) :: %{String.t() => float()}

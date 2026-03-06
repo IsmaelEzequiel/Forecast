@@ -14,6 +14,15 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
   alias WeatherEdge.PubSubHelper
 
   @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"station_code" => code}}) do
+    case Stations.get_by_code(code) do
+      {:ok, station} -> scan_station(station)
+      {:error, _} -> Logger.warning("EventScanner: Station #{code} not found")
+    end
+
+    :ok
+  end
+
   def perform(%Oban.Job{}) do
     stations = Stations.list_stations()
 
@@ -38,13 +47,12 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
   end
 
   defp fetch_events_for_station(station) do
-    case station.slug_pattern do
+    case station.tag_slug do
       nil ->
         GammaClient.get_events(active: true, closed: false, limit: 50)
 
-      pattern ->
-        slug_base = pattern |> String.replace("*", "") |> String.trim_trailing("-")
-        GammaClient.get_events(active: true, closed: false, limit: 50, slug: slug_base)
+      tag_slug ->
+        GammaClient.get_events(active: true, closed: false, limit: 50, tag_slug: tag_slug)
     end
   end
 
@@ -85,11 +93,7 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
   end
 
   defp matches_station?(station, event) do
-    title = Map.get(event, "title", "") |> String.downcase()
     slug = Map.get(event, "slug", "") |> String.downcase()
-    city = (station.city || "") |> String.downcase()
-
-    city_match = city != "" and (String.contains?(title, city) or String.contains?(slug, city))
 
     slug_match =
       case station.slug_pattern do
@@ -105,7 +109,7 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
           Regex.match?(~r/#{slug_regex}/i, slug)
       end
 
-    city_match or slug_match
+    slug_match
   end
 
   defp maybe_enqueue_auto_buyer(station, cluster) do

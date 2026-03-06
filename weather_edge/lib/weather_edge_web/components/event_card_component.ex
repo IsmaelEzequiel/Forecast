@@ -22,12 +22,22 @@ defmodule WeatherEdgeWeb.Components.EventCardComponent do
             (<%= resolution_label(@days_until) %>)
           </span>
         </div>
-        <.link
-          navigate={"/stations/#{@station_code}/events/#{@cluster.id}"}
-          class="text-xs text-blue-600 hover:underline"
-        >
-          View Details
-        </.link>
+        <div class="flex items-center gap-2">
+          <.link
+            navigate={"/stations/#{@station_code}/events/#{@cluster.id}"}
+            class="text-xs text-blue-600 hover:underline"
+          >
+            View Details
+          </.link>
+          <button
+            phx-click="delete_cluster"
+            phx-value-cluster_id={@cluster.id}
+            data-confirm="Are you sure you want to delete this event?"
+            class="text-xs text-red-400 hover:text-red-600"
+          >
+            &times;
+          </button>
+        </div>
       </div>
 
       <%= if @position do %>

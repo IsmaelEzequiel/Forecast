@@ -31,6 +31,9 @@
 - OrderManager uses configurable client modules via `Application.get_env(:weather_edge, :data_client)` and `:clob_client` - mock in test config
 - Mock clients for trading tests are in `test/support/mock_clients.ex` using `Process.put/get` for per-test configuration
 - Docker `.env` file must exist for docker-compose (copy from `.env.example` with placeholder values)
+- HTTP client tests use Bypass for mocking - use `Bypass.stub` (not `expect_once`) for error responses since Req retries on 429/500
+- GammaClient uses `Application.get_env(:weather_edge, :gamma_api_url)` for configurable base URL (useful for test overrides)
+- LiveView tests use `ConnCase` with `import Phoenix.LiveViewTest`; modal close uses `render_hook` since CoreComponents modal has JS-driven close
 
 ---
 
@@ -566,4 +569,19 @@
   - `Process.put/get` works well for per-test mock configuration in sync tests (use `async: false`)
   - `:persistent_term` can be directly manipulated in tests for rate limit testing - use `on_exit` to clean up
   - Detector tests don't need DB (pure functions) - use `ExUnit.Case` instead of `DataCase`
+---
+
+## 2026-03-06 - US-043
+- What was implemented: Tests for API clients (GammaClient, EventParser, OpenMeteoClient) and DashboardLive
+- Files changed:
+  - `weather_edge/mix.exs` - Added `bypass ~> 2.1` test dependency for HTTP mocking
+  - `weather_edge/test/weather_edge/markets/gamma_client_test.exs` - GammaClient tests (get_events success/429/500, get_event_by_slug found/not_found) + EventParser tests (parse_event extracts event_id/slug/title/target_date, outcome parsing with prices/token IDs, edge buckets 'or below'/'or higher', invalid format, list clobTokenIds)
+  - `weather_edge/test/weather_edge/forecasts/open_meteo_client_test.exs` - OpenMeteoClient tests (extract_daily_max with single/multiple models, partial failures, multi-day filtering, empty response; fetch_all_models success/500)
+  - `weather_edge/test/weather_edge_web/live/dashboard_live_test.exs` - DashboardLive tests (renders empty state, station cards, multiple stations; PubSub balance/station_created/signal updates; add station modal open/close)
+- **Learnings for future iterations:**
+  - Req retries on 429 and 500 responses by default - use `Bypass.stub` instead of `Bypass.expect_once` for error status tests
+  - GammaClient has configurable `gamma_api_url` via `Application.get_env` - set in test setup to point to Bypass
+  - OpenMeteoClient reads base URL from `Application.get_env(:weather_edge, :forecasts)[:open_meteo_base_url]`
+  - Phoenix CoreComponents modal close button uses JS commands, not simple phx-click - use `render_hook(view, "close_add_station_modal", %{})` to test close
+  - LiveView tests: use `element("button", "text")` to find buttons by visible text, more reliable than attribute selectors
 ---

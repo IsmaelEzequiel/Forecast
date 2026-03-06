@@ -29,22 +29,24 @@ defmodule WeatherEdge.Probability.Engine do
 
       lower_bound = Keyword.get(opts, :lower_bound)
       upper_bound = Keyword.get(opts, :upper_bound)
+      unit = Keyword.get(opts, :temp_unit, "C")
 
       distribution =
         snapshots
-        |> extract_temps()
+        |> extract_temps(unit)
         |> build_empirical()
         |> Gaussian.apply_kernel(sigma)
-        |> collapse_tails(lower_bound, upper_bound)
+        |> collapse_tails(lower_bound, upper_bound, unit)
         |> to_distribution()
 
       {:ok, distribution}
     end
   end
 
-  defp extract_temps(snapshots) do
+  defp extract_temps(snapshots, unit) do
     Enum.map(snapshots, fn snapshot ->
-      round(snapshot.max_temp_c)
+      temp = snapshot.max_temp_c
+      if unit == "F", do: round(temp * 9 / 5 + 32), else: round(temp)
     end)
   end
 
@@ -56,9 +58,11 @@ defmodule WeatherEdge.Probability.Engine do
     |> Map.new(fn {temp, count} -> {temp, count / total} end)
   end
 
-  defp collapse_tails(prob_map, nil, nil), do: label_outcomes(prob_map)
+  defp collapse_tails(prob_map, nil, nil, unit), do: label_outcomes(prob_map, unit)
 
-  defp collapse_tails(prob_map, lower_bound, upper_bound) do
+  defp collapse_tails(prob_map, lower_bound, upper_bound, unit) do
+    u = unit_suffix(unit)
+
     {below, within, above} =
       Enum.reduce(prob_map, {0.0, [], 0.0}, fn {temp, prob}, {below_acc, within_acc, above_acc} ->
         cond do
@@ -73,24 +77,28 @@ defmodule WeatherEdge.Probability.Engine do
         end
       end)
 
-    result = Map.new(within, fn {temp, prob} -> {"#{temp}C", prob} end)
+    result = Map.new(within, fn {temp, prob} -> {"#{temp}#{u}", prob} end)
 
     result =
       if lower_bound && below > 0,
-        do: Map.put(result, "#{lower_bound}C or below", below),
+        do: Map.put(result, "#{lower_bound}#{u} or below", below),
         else: result
 
     result =
       if upper_bound && above > 0,
-        do: Map.put(result, "#{upper_bound}C or higher", above),
+        do: Map.put(result, "#{upper_bound}#{u} or higher", above),
         else: result
 
     result
   end
 
-  defp label_outcomes(prob_map) do
-    Map.new(prob_map, fn {temp, prob} -> {"#{temp}C", prob} end)
+  defp label_outcomes(prob_map, unit) do
+    u = unit_suffix(unit)
+    Map.new(prob_map, fn {temp, prob} -> {"#{temp}#{u}", prob} end)
   end
+
+  defp unit_suffix("F"), do: "F"
+  defp unit_suffix(_), do: "C"
 
   defp to_distribution(labeled_probs) do
     # Normalize to ensure sum = 1.0

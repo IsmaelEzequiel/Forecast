@@ -34,6 +34,8 @@ defmodule WeatherEdgeWeb.DashboardLive do
     end
 
     wallet_address = Application.get_env(:weather_edge, :polymarket)[:wallet_address]
+    cached_balance = :persistent_term.get(:sidecar_balance, nil)
+    sidecar_positions = :persistent_term.get(:sidecar_positions, [])
 
     {:ok,
      assign(socket,
@@ -42,15 +44,17 @@ defmodule WeatherEdgeWeb.DashboardLive do
        all_positions: all_positions,
        positions: positions,
        positions_by_cluster: positions_by_cluster,
+       sidecar_positions: sidecar_positions,
        signals: [],
-       balance: nil,
+       balance: cached_balance,
        wallet_address: wallet_address,
        show_add_station_modal: false,
        modal_step: :input,
        modal_code: "",
        modal_loading: false,
        modal_error: nil,
-       modal_station_info: nil
+       modal_station_info: nil,
+       modal_temp_unit: "C"
      )}
   end
 
@@ -97,6 +101,10 @@ defmodule WeatherEdgeWeb.DashboardLive do
       Enum.into(positions, %{}, fn p -> {p.market_cluster_id, p} end)
 
     {:noreply, assign(socket, all_positions: all_positions, positions: positions, positions_by_cluster: positions_by_cluster)}
+  end
+
+  def handle_info({:positions_synced, positions}, socket) do
+    {:noreply, assign(socket, sidecar_positions: positions)}
   end
 
   def handle_info({:forecast_updated, _station_code}, socket) do
@@ -176,7 +184,8 @@ defmodule WeatherEdgeWeb.DashboardLive do
        modal_code: "",
        modal_loading: false,
        modal_error: nil,
-       modal_station_info: nil
+       modal_station_info: nil,
+       modal_temp_unit: "C"
      )}
   end
 
@@ -195,9 +204,18 @@ defmodule WeatherEdgeWeb.DashboardLive do
     end
   end
 
+  def handle_event("set_temp_unit", %{"unit" => unit}, socket) when unit in ["C", "F"] do
+    {:noreply, assign(socket, modal_temp_unit: unit)}
+  end
+
   def handle_event("confirm_add_station", _params, socket) do
-    case Stations.create_station(%{code: socket.assigns.modal_code}) do
-      {:ok, _station} ->
+    case Stations.create_station(%{code: socket.assigns.modal_code, temp_unit: socket.assigns.modal_temp_unit}) do
+      {:ok, station} ->
+        # Trigger immediate event scan for the new station
+        %{station_code: station.code}
+        |> WeatherEdge.Workers.EventScannerWorker.new(queue: :scanner)
+        |> Oban.insert()
+
         {:noreply, assign(socket, show_add_station_modal: false)}
 
       {:error, :invalid_station} ->
@@ -219,7 +237,8 @@ defmodule WeatherEdgeWeb.DashboardLive do
        modal_code: "",
        modal_loading: false,
        modal_error: nil,
-       modal_station_info: nil
+       modal_station_info: nil,
+       modal_temp_unit: "C"
      )}
   end
 
@@ -253,16 +272,53 @@ defmodule WeatherEdgeWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_event("scan_station", %{"code" => code}, socket) do
+    %{station_code: code}
+    |> WeatherEdge.Workers.EventScannerWorker.new(queue: :scanner)
+    |> Oban.insert()
+
+    {:noreply, put_flash(socket, :info, "Scanning events for #{code}...")}
+  end
+
+  def handle_event("delete_station", %{"code" => code}, socket) do
+    station = Enum.find(socket.assigns.stations, &(&1.code == code))
+
+    if station do
+      case Stations.delete_station(station) do
+        {:ok, _} ->
+          {:noreply, put_flash(socket, :info, "Station #{code} deleted")}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to delete station")}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("delete_cluster", %{"cluster_id" => cluster_id}, socket) do
+    case WeatherEdge.Markets.delete_market_cluster(cluster_id) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Event deleted")
+         |> assign(clusters: WeatherEdge.Markets.get_active_clusters())}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to delete event")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
       <.dashboard_header balance={@balance} wallet_address={@wallet_address} />
 
-      <.portfolio_summary positions={@all_positions} balance={@balance} />
+      <.portfolio_summary positions={@all_positions} sidecar_positions={@sidecar_positions} balance={@balance} />
 
       <!-- Station Cards -->
-      <div class="space-y-4">
+      <div class="grid grid-cols-2 gap-4">
         <.station_card
           :for={station <- @stations}
           station={station}
@@ -285,6 +341,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
         loading={@modal_loading}
         error={@modal_error}
         station_info={@modal_station_info}
+        temp_unit={@modal_temp_unit}
       />
     </div>
     """

@@ -19,7 +19,7 @@ defmodule WeatherEdge.Markets.MarketSnapshot do
     market_snapshot
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
-    |> validate_length(:outcome_label, max: 30)
+    |> validate_length(:outcome_label, max: 100)
     |> foreign_key_constraint(:market_cluster_id)
   end
 end

@@ -4,3 +4,6 @@ deps/
 .env
 *.ez
 node_modules/
+sidecar/node_modules/
+.git/
+DEPLOY.md

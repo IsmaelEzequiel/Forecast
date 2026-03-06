@@ -13,7 +13,7 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   alias WeatherEdge.Markets
   alias WeatherEdge.Probability.{Distribution, Engine}
   alias WeatherEdge.Stations
-  alias WeatherEdge.Trading.{ClobClient, OrderManager}
+  alias WeatherEdge.Trading.OrderManager
   alias WeatherEdge.PubSubHelper
 
   @impl Oban.Worker
@@ -65,7 +65,7 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   defp handle_top_outcome(station, cluster, outcome, top_prob, distribution) do
     token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first()
 
-    case ClobClient.get_price(token_id, "buy") do
+    case clob_client().get_price(token_id, "buy") do
       {:ok, yes_price} ->
         if yes_price <= station.max_buy_price do
           execute_buy(station, cluster, outcome, token_id, yes_price, top_prob)
@@ -122,7 +122,7 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
         if model_prob > 0.20 do
           token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first()
 
-          case ClobClient.get_price(token_id, "buy") do
+          case clob_client().get_price(token_id, "buy") do
             {:ok, yes_price} when yes_price <= station.max_buy_price ->
               Logger.info(
                 "AutoBuyer: Secondary opportunity for #{station.code}: " <>
@@ -196,6 +196,8 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
       }}
     )
   end
+
+  defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
 
   defp broadcast_secondary_alert(station_code, cluster, label, price, model_prob) do
     PubSubHelper.broadcast(

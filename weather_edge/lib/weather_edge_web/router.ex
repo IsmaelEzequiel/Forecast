@@ -17,14 +17,25 @@ defmodule WeatherEdgeWeb.Router do
   scope "/", WeatherEdgeWeb do
     pipe_through :browser
 
-    live "/", DashboardLive
-    live "/stations/:code/events/:event_id", StationDetailLive
+    get "/login", SessionController, :new
+    post "/login", SessionController, :create
+    delete "/logout", SessionController, :delete
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", WeatherEdgeWeb do
-  #   pipe_through :api
-  # end
+  scope "/", WeatherEdgeWeb do
+    pipe_through [:browser, WeatherEdgeWeb.Plugs.RequireAuth]
+
+    live_session :authenticated, on_mount: WeatherEdgeWeb.Live.AuthHook do
+      live "/", DashboardLive
+      live "/stations/:code/events/:event_id", StationDetailLive
+    end
+  end
+
+  scope "/api", WeatherEdgeWeb do
+    pipe_through :api
+
+    post "/sidecar/sync", SidecarController, :sync
+  end
 
   # Enable LiveDashboard in development
   if Application.compile_env(:weather_edge, :dev_routes) do

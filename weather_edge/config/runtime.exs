@@ -29,6 +29,14 @@ config :weather_edge, :polymarket,
   wallet_address: System.get_env("POLYMARKET_WALLET_ADDRESS"),
   chain_id: 137
 
+config :weather_edge, :auth,
+  username: System.get_env("AUTH_USERNAME") || "admin",
+  password: System.get_env("AUTH_PASSWORD") || "changeme"
+
+config :weather_edge, :sidecar_secret, System.get_env("SIDECAR_SECRET") || "sidecar-dev-secret"
+config :weather_edge, :sidecar_url, System.get_env("SIDECAR_URL") || "http://localhost:4001"
+config :weather_edge, :clob_client, WeatherEdge.Trading.SidecarClient
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

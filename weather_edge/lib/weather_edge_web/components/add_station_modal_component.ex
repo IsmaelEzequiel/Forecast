@@ -9,6 +9,7 @@ defmodule WeatherEdgeWeb.Components.AddStationModalComponent do
   attr :loading, :boolean, default: false
   attr :error, :string, default: nil
   attr :station_info, :map, default: nil
+  attr :temp_unit, :string, default: "C"
 
   def add_station_modal(assigns) do
     ~H"""
@@ -76,6 +77,36 @@ defmodule WeatherEdgeWeb.Components.AddStationModalComponent do
               <dd><%= @station_info.latitude %>, <%= @station_info.longitude %></dd>
             </div>
           </dl>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-zinc-700 mb-2">Temperature Unit</label>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              phx-click="set_temp_unit"
+              phx-value-unit="C"
+              class={[
+                "flex-1 rounded-lg border px-4 py-2 text-sm font-semibold transition",
+                @temp_unit == "C" && "border-zinc-900 bg-zinc-900 text-white",
+                @temp_unit != "C" && "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+              ]}
+            >
+              Celsius (°C)
+            </button>
+            <button
+              type="button"
+              phx-click="set_temp_unit"
+              phx-value-unit="F"
+              class={[
+                "flex-1 rounded-lg border px-4 py-2 text-sm font-semibold transition",
+                @temp_unit == "F" && "border-zinc-900 bg-zinc-900 text-white",
+                @temp_unit != "F" && "border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+              ]}
+            >
+              Fahrenheit (°F)
+            </button>
+          </div>
         </div>
 
         <div class="flex gap-3">

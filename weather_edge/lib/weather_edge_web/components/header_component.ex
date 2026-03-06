@@ -33,8 +33,20 @@ defmodule WeatherEdgeWeb.Components.HeaderComponent do
     """
   end
 
-  defp format_balance(balance) when is_float(balance) do
-    :erlang.float_to_binary(balance, decimals: 2)
+  defp format_balance(balance) when is_number(balance) do
+    formatted = :erlang.float_to_binary(balance / 1, decimals: 2)
+
+    [integer_part, decimal_part] = String.split(formatted, ".")
+
+    grouped =
+      integer_part
+      |> String.reverse()
+      |> String.to_charlist()
+      |> Enum.chunk_every(3)
+      |> Enum.join(",")
+      |> String.reverse()
+
+    "#{grouped}.#{decimal_part}"
   end
 
   defp format_balance(_), do: "0.00"

@@ -14,12 +14,14 @@ defmodule WeatherEdge.Stations.Station do
     field :max_buy_price, :float, default: 0.20
     field :buy_amount_usdc, :float, default: 5.00
     field :slug_pattern, :string
+    field :tag_slug, :string
+    field :temp_unit, :string, default: "C"
 
     timestamps(type: :utc_datetime)
   end
 
   @required_fields ~w(code city latitude longitude country)a
-  @optional_fields ~w(wunderground_url monitoring_enabled auto_buy_enabled max_buy_price buy_amount_usdc slug_pattern)a
+  @optional_fields ~w(wunderground_url monitoring_enabled auto_buy_enabled max_buy_price buy_amount_usdc slug_pattern tag_slug temp_unit)a
 
   def changeset(station, attrs) do
     station
