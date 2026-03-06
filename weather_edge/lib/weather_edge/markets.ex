@@ -31,6 +31,20 @@ defmodule WeatherEdge.Markets do
     Repo.get_by(MarketCluster, event_id: event_id)
   end
 
+  def station_codes_with_active_clusters do
+    MarketCluster
+    |> where([mc], mc.resolved == false)
+    |> select([mc], mc.station_code)
+    |> distinct(true)
+    |> Repo.all()
+  end
+
+  def active_clusters_for_station(station_code) do
+    MarketCluster
+    |> where([mc], mc.station_code == ^station_code and mc.resolved == false)
+    |> Repo.all()
+  end
+
   def mark_resolved(market_cluster_id, resolution_temp) do
     case Repo.get(MarketCluster, market_cluster_id) do
       nil ->

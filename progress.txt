@@ -311,3 +311,27 @@
   - Station matching: use slug_pattern with wildcard-to-regex conversion, fallback to city name substring match in title/slug
   - PubSub topic for new events: `"station:CODE:new_event"` with event `{:new_event, station_code, cluster}`
 ---
+
+## 2026-03-06 - US-024
+- Implemented: Auto-buyer worker that buys the most likely temperature outcome when a new event opens
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/auto_buyer_worker.ex` - Full AutoBuyerWorker: fetches forecasts via OpenMeteoClient, stores snapshots, runs Probability.Engine, checks YES price vs max_buy_price, places buy via OrderManager, checks secondary opportunities, broadcasts via PubSub
+- **Learnings for future iterations:**
+  - AutoBuyerWorker fetches fresh forecasts before computing distribution (can't rely on existing snapshots for brand-new events)
+  - MarketCluster outcomes is a list of maps with string keys: "outcome_label", "clob_token_ids", etc.
+  - `clob_token_ids` in outcome may be a list; use `List.wrap() |> List.first()` to safely extract the token ID
+  - Secondary opportunities: check all outcomes where model_prob > 20% and YES price <= max_buy_price (alert only, no auto-buy)
+  - PubSub topics for auto-buyer: `"trading:STATION_CODE"` with events `:auto_buy_executed`, `:auto_buy_skipped`, `:secondary_opportunity`
+---
+
+## 2026-03-06 - US-025
+- Implemented: Forecast refresh worker that refreshes multi-model forecasts every 15 minutes
+- Files changed:
+  - `weather_edge/lib/weather_edge/workers/forecast_refresh_worker.ex` - ForecastRefreshWorker with Oban.Worker queue: :forecasts, queries stations with active clusters, fetches OpenMeteo forecasts for all target dates, stores snapshots, broadcasts updates
+  - `weather_edge/lib/weather_edge/markets.ex` - Added station_codes_with_active_clusters/0 and active_clusters_for_station/1
+- **Learnings for future iterations:**
+  - Workers that operate on stations with active markets should query Markets.station_codes_with_active_clusters/0 rather than listing all stations
+  - Single OpenMeteo API call per station serves all target dates (extract_daily_max filters by date from same response)
+  - PubSub topic for forecast updates: `"station:CODE:forecast_update"` with event `:forecast_updated`
+  - Partial failure handling: each station is processed independently, errors are logged but don't block other stations
+---
