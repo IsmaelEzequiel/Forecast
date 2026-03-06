@@ -28,6 +28,7 @@ defmodule WeatherEdgeWeb.Router do
     live_session :authenticated, on_mount: WeatherEdgeWeb.Live.AuthHook do
       live "/", DashboardLive
       live "/stations/:code/events/:event_id", StationDetailLive
+      live "/docs", DocsLive
     end
   end
 
