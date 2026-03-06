@@ -50,36 +50,42 @@ defmodule WeatherEdge.Signals.Detector do
     no_price = Map.get(outcome, "no_price", 0.0)
     liquidity = Map.get(outcome, "liquidity", 0.0)
 
-    # Try exact match first, then extract short temp label (e.g., "28C" from full question)
-    short_label = extract_temp_label(label)
+    # Skip outcomes that are effectively settled:
+    # market at 95%+ YES with observed data = already resolved, don't fight it
+    if observed_high_c != nil and yes_price >= 0.95 do
+      nil
+    else
+      # Try exact match first, then extract short temp label (e.g., "28C" from full question)
+      short_label = extract_temp_label(label)
 
-    # If we have an observed high for today, use it to determine already-settled outcomes
-    model_prob =
-      case observed_override(short_label, observed_high_c, cluster) do
-        {:resolved, prob} -> prob
-        :use_model -> Distribution.probability_for(dist, short_label)
+      # If we have an observed high for today, use it to determine already-settled outcomes
+      model_prob =
+        case observed_override(short_label, observed_high_c, cluster) do
+          {:resolved, prob} -> prob
+          :use_model -> Distribution.probability_for(dist, short_label)
+        end
+
+      edge_yes = model_prob - yes_price
+      edge_no = (1.0 - model_prob) - no_price
+
+      {edge, side} = pick_best_side(edge_yes, edge_no)
+
+      market_price = if side == "YES", do: yes_price, else: no_price
+
+      alert_level = determine_alert_level(model_prob, edge, liquidity, market_price, side)
+
+      if alert_level do
+        %{
+          outcome_label: label,
+          model_probability: model_prob,
+          market_yes_price: yes_price,
+          market_no_price: no_price,
+          edge: edge,
+          recommended_side: side,
+          alert_level: alert_level,
+          liquidity: liquidity
+        }
       end
-
-    edge_yes = model_prob - yes_price
-    edge_no = (1.0 - model_prob) - no_price
-
-    {edge, side} = pick_best_side(edge_yes, edge_no)
-
-    market_price = if side == "YES", do: yes_price, else: no_price
-
-    alert_level = determine_alert_level(model_prob, edge, liquidity, market_price, side)
-
-    if alert_level do
-      %{
-        outcome_label: label,
-        model_probability: model_prob,
-        market_yes_price: yes_price,
-        market_no_price: no_price,
-        edge: edge,
-        recommended_side: side,
-        alert_level: alert_level,
-        liquidity: liquidity
-      }
     end
   end
 
@@ -102,17 +108,25 @@ defmodule WeatherEdge.Signals.Detector do
 
       {:exact, temp, unit} ->
         observed = convert_temp(observed_high_c, unit)
-        # Exact temp like "27C" — if observed already exceeds this, it can't be 27C anymore
-        # (the high will be higher). If observed == temp, it could still go higher.
-        # Only override if observed is already above this value.
-        if observed > temp, do: {:resolved, 0.0}, else: :use_model
+        cond do
+          # Observed is exactly this temp — likely the winning outcome
+          observed == temp -> {:resolved, 1.0}
+          # Observed already exceeded — can't be this temp anymore
+          observed > temp -> {:resolved, 0.0}
+          # Observed below — temp could still rise to this value
+          true -> :use_model
+        end
 
-      {:range, low, _high, unit} ->
+      {:range, low, high, unit} ->
         observed = convert_temp(observed_high_c, unit)
-        # Range like "25-26C" — if observed already above the range high, resolved NO
-        # But we check against low for safety: if observed > high of range, the high
-        # can't land in this range anymore
-        if observed > low + 1, do: {:resolved, 0.0}, else: :use_model
+        cond do
+          # Observed is within the range — this is the likely winner
+          observed >= low and observed <= high -> {:resolved, 1.0}
+          # Observed already above the range — high exceeded it
+          observed > high -> {:resolved, 0.0}
+          # Observed below range — temp could still rise into it
+          true -> :use_model
+        end
 
       :unknown ->
         :use_model
