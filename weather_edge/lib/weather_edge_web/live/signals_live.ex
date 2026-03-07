@@ -11,6 +11,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   alias WeatherEdge.Markets
   alias WeatherEdge.Trading.OrderManager
 
+  import Ecto.Query
   import WeatherEdgeWeb.Components.HeaderComponent
 
   @impl true
@@ -58,7 +59,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
        buying: false,
        buy_progress: nil,
        performance_expanded: false,
-       performance_data: nil
+       performance_data: nil,
+       highlighted: MapSet.new()
      )}
   end
 
@@ -78,7 +80,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
       <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
         <%= case @view_mode do %>
           <% :table -> %>
-            <.signals_table signals={@signals} selected={@selected} total_count={@total_count} />
+            <.signals_table signals={@signals} selected={@selected} total_count={@total_count} highlighted={@highlighted} />
           <% :grouped -> %>
             <.grouped_view signals={@signals} />
           <% :heatmap -> %>
@@ -353,7 +355,10 @@ defmodule WeatherEdgeWeb.SignalsLive do
             :for={row <- @signals}
             phx-click="open_detail"
             phx-value-id={row.signal.id}
-            class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors"
+            class={[
+              "border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors",
+              MapSet.member?(@highlighted, row.signal.id) && "bg-green-50 dark:bg-green-900/20 animate-pulse"
+            ]}
           >
             <td class="px-3 py-2">
               <input
@@ -395,8 +400,13 @@ defmodule WeatherEdgeWeb.SignalsLive do
                 <%= row.signal.confidence || "-" %>
               </span>
             </td>
-            <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">
+            <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
               $<%= format_price(row.signal.market_price) %>
+              <span
+                :if={stale_signal?(row)}
+                title="Price may be stale (>10% deviation from current market)"
+                class="ml-1 text-amber-500 dark:text-amber-400"
+              >⚠</span>
             </td>
             <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">
               <%= format_pct(row.signal.model_probability) %>
@@ -1572,6 +1582,74 @@ defmodule WeatherEdgeWeb.SignalsLive do
     {:noreply, assign(socket, :buy_progress, "Buying #{n}/#{total}...")}
   end
 
+  def handle_info({:new_signal, signal}, socket) do
+    filters = socket.assigns.filters
+
+    if signal_matches_filters?(signal, filters) do
+      row = build_signal_row(signal)
+
+      signals = [row | socket.assigns.signals]
+      total_count = socket.assigns.total_count + 1
+      highlighted = MapSet.put(socket.assigns[:highlighted] || MapSet.new(), signal.id)
+
+      socket =
+        socket
+        |> assign(:signals, signals)
+        |> assign(:total_count, total_count)
+        |> assign(:highlighted, highlighted)
+
+      Process.send_after(self(), {:clear_highlight, signal.id}, 3_000)
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:clear_highlight, signal_id}, socket) do
+    highlighted =
+      (socket.assigns[:highlighted] || MapSet.new())
+      |> MapSet.delete(signal_id)
+
+    {:noreply, assign(socket, :highlighted, highlighted)}
+  end
+
+  def handle_info({:balance_updated, balance}, socket) do
+    {:noreply, assign(socket, :balance, balance)}
+  end
+
+  def handle_info({:position_updated, position}, socket) do
+    signals =
+      Enum.map(socket.assigns.signals, fn row ->
+        if row.signal.market_cluster_id == position.market_cluster_id &&
+             row.signal.outcome_label == position.outcome_label &&
+             position.status == "open" do
+          %{
+            row
+            | position: %{
+                id: position.id,
+                tokens: position.tokens,
+                avg_buy_price: position.avg_buy_price,
+                current_price: position.current_price,
+                unrealized_pnl: position.unrealized_pnl,
+                side: position.side
+              }
+          }
+        else
+          row
+        end
+      end)
+
+    {:noreply, assign(socket, :signals, signals)}
+  end
+
+  def handle_info({:positions_synced, _positions}, socket) do
+    {:noreply, do_reload_signals(socket, socket.assigns.filters)}
+  end
+
+  def handle_info(_msg, socket) do
+    {:noreply, socket}
+  end
+
   defp reload_signals(socket, filters) do
     {:noreply, do_reload_signals(socket, filters)}
   end
@@ -1697,6 +1775,122 @@ defmodule WeatherEdgeWeb.SignalsLive do
     Enum.count(Map.keys(defaults), fn key ->
       Map.get(filters, key) != Map.get(defaults, key)
     end)
+  end
+
+  defp stale_signal?(row) do
+    signal_price = row.signal.market_price
+    current_price = current_outcome_price(row.cluster.outcomes, row.signal.outcome_label)
+
+    cond do
+      is_nil(signal_price) or is_nil(current_price) or current_price == 0 -> false
+      abs(signal_price - current_price) / current_price > 0.10 -> true
+      true -> false
+    end
+  end
+
+  defp current_outcome_price(outcomes, outcome_label) when is_list(outcomes) do
+    case Enum.find(outcomes, fn o ->
+           (o["outcome_label"] || o["label"]) == outcome_label
+         end) do
+      %{"price" => price} when is_number(price) -> price
+      %{"yes_price" => price} when is_number(price) -> price
+      _ -> nil
+    end
+  end
+
+  defp current_outcome_price(_, _), do: nil
+
+  defp signal_matches_filters?(signal, filters) do
+    station_match =
+      filters.stations == [] || signal.station_code in filters.stations
+
+    edge_match =
+      is_nil(filters.min_edge) || (signal.edge && signal.edge * 100 >= filters.min_edge)
+
+    side_match =
+      filters.side == "all" || signal.recommended_side == filters.side
+
+    alert_match =
+      filters.alert_level == "all" || signal.alert_level == filters.alert_level
+
+    station_match && edge_match && side_match && alert_match
+  end
+
+  defp build_signal_row(signal) do
+    cluster = WeatherEdge.Repo.get(WeatherEdge.Markets.MarketCluster, signal.market_cluster_id)
+    station = WeatherEdge.Repo.get_by(WeatherEdge.Stations.Station, code: signal.station_code)
+
+    position =
+      WeatherEdge.Repo.one(
+        from(p in WeatherEdge.Trading.Position,
+          where:
+            p.market_cluster_id == ^signal.market_cluster_id and
+              p.outcome_label == ^signal.outcome_label and
+              p.status == "open",
+          limit: 1
+        )
+      )
+
+    hours_to_resolution =
+      if cluster && cluster.target_date do
+        target_datetime = DateTime.new!(cluster.target_date, ~T[23:59:59], "Etc/UTC")
+        DateTime.diff(target_datetime, DateTime.utc_now(), :hour) |> max(0)
+      else
+        nil
+      end
+
+    %{
+      signal: %{
+        id: signal.id,
+        computed_at: signal.computed_at,
+        station_code: signal.station_code,
+        outcome_label: signal.outcome_label,
+        model_probability: signal.model_probability,
+        market_price: signal.market_price,
+        edge: signal.edge,
+        recommended_side: signal.recommended_side,
+        alert_level: signal.alert_level,
+        confidence: signal.confidence,
+        market_cluster_id: signal.market_cluster_id
+      },
+      cluster:
+        if cluster do
+          %{
+            id: cluster.id,
+            target_date: cluster.target_date,
+            title: cluster.title,
+            event_slug: cluster.event_slug,
+            outcomes: cluster.outcomes
+          }
+        else
+          %{id: nil, target_date: nil, title: nil, event_slug: nil, outcomes: []}
+        end,
+      station:
+        if station do
+          %{
+            code: station.code,
+            city: station.city,
+            max_buy_price: station.max_buy_price,
+            buy_amount_usdc: station.buy_amount_usdc
+          }
+        else
+          %{code: signal.station_code, city: nil, max_buy_price: nil, buy_amount_usdc: nil}
+        end,
+      position:
+        if position do
+          %{
+            id: position.id,
+            tokens: position.tokens,
+            avg_buy_price: position.avg_buy_price,
+            current_price: position.current_price,
+            unrealized_pnl: position.unrealized_pnl,
+            side: position.side
+          }
+        else
+          nil
+        end,
+      hours_to_resolution: hours_to_resolution
+    }
   end
 
   defp default_filters do
