@@ -1743,9 +1743,9 @@ defmodule WeatherEdgeWeb.SignalsLive do
     end)
 
     case match do
-      %{"token_id" => token_id} when not is_nil(token_id) -> token_id
-      %{"clob_token_ids" => [yes_token | _]} -> yes_token
-      %{"clob_token_ids" => token} when is_binary(token) -> token
+      %{"token_id" => token_id} when not is_nil(token_id) -> strip_quotes(token_id)
+      %{"clob_token_ids" => [yes_token | _]} -> strip_quotes(yes_token)
+      %{"clob_token_ids" => token} when is_binary(token) -> strip_quotes(token)
       nil ->
         require Logger
         labels = Enum.map(outcomes, fn o -> o["outcome_label"] || o["label"] end)
@@ -1764,6 +1764,9 @@ defmodule WeatherEdgeWeb.SignalsLive do
   end
 
   defp find_token_id(_, _), do: nil
+
+  defp strip_quotes(s) when is_binary(s), do: String.replace(s, "\"", "")
+  defp strip_quotes(s), do: s
 
   defp maybe_update_stations(filters, %{"stations" => stations}) when is_list(stations) do
     %{filters | stations: stations}

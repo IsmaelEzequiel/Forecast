@@ -81,7 +81,7 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
   # Returns {yes_price, no_price} for the outcome (keeping old values on failure)
   defp snapshot_outcome(cluster, outcome, now) do
     label = outcome["outcome_label"]
-    token_ids = outcome["clob_token_ids"] |> List.wrap() |> List.first()
+    token_ids = outcome["clob_token_ids"] |> List.wrap() |> List.first() |> strip_token_quotes()
     old_yes = outcome["yes_price"]
     old_no = outcome["no_price"]
 
@@ -149,6 +149,9 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
   end
 
   defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
+
+  defp strip_token_quotes(nil), do: nil
+  defp strip_token_quotes(s) when is_binary(s), do: String.replace(s, "\"", "")
 
   defp fetch_price(token_id, side) do
     case clob_client().get_price(token_id, side) do

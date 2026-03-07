@@ -77,7 +77,7 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   end
 
   defp handle_top_outcome(station, cluster, outcome, top_prob, distribution) do
-    token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first()
+    token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first() |> strip_token_quotes()
 
     case clob_client().get_price(token_id, "buy") do
       {:ok, yes_price} ->
@@ -136,7 +136,7 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
         model_prob = Distribution.probability_for(distribution, label)
 
         if model_prob > 0.20 do
-          token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first()
+          token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first() |> strip_token_quotes()
 
           case clob_client().get_price(token_id, "buy") do
             {:ok, yes_price} when yes_price <= station.max_buy_price ->
@@ -232,6 +232,9 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   defp kelly_size(base_amount, _model_prob, _price), do: base_amount
 
   defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
+
+  defp strip_token_quotes(nil), do: nil
+  defp strip_token_quotes(s) when is_binary(s), do: String.replace(s, "\"", "")
 
   defp broadcast_secondary_alert(station_code, cluster, label, price, model_prob) do
     PubSubHelper.broadcast(

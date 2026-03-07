@@ -69,7 +69,7 @@ defmodule WeatherEdge.Markets.EventParser do
     case token_ids do
       ids when is_binary(ids) and ids != "" ->
         ids
-        |> String.replace(~r/[\[\]\s]/, "")
+        |> String.replace(~r/[\[\]\s"]/, "")
         |> String.split(",", trim: true)
 
       ids when is_list(ids) ->
