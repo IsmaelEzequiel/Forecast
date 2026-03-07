@@ -375,70 +375,23 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
       </div>
       """
     else
-      values = Enum.map(data, & &1.cumulative)
-      min_val = Enum.min(values)
-      max_val = Enum.max(values)
-      range = max(max_val - min_val, 0.01)
-      padding = range * 0.1
+      chart_data =
+        Jason.encode!(%{
+          labels: Enum.map(data, &Calendar.strftime(&1.date, "%b %d")),
+          values: Enum.map(data, & &1.cumulative)
+        })
 
-      chart_min = min_val - padding
-      chart_max = max_val + padding
-      chart_range = chart_max - chart_min
-
-      width = 800
-      height = 200
-      point_count = length(data)
-
-      points =
-        data
-        |> Enum.with_index()
-        |> Enum.map(fn {d, i} ->
-          x = if point_count > 1, do: i / (point_count - 1) * width, else: width / 2
-          y = height - (d.cumulative - chart_min) / chart_range * height
-          {x, y}
-        end)
-
-      zero_y = height - (0.0 - chart_min) / chart_range * height
-
-      polyline_points =
-        points
-        |> Enum.map(fn {x, y} -> "#{Float.round(x, 1)},#{Float.round(y, 1)}" end)
-        |> Enum.join(" ")
-
-      area_points =
-        "#{Float.round(elem(hd(points), 0), 1)},#{Float.round(zero_y, 1)} " <>
-          polyline_points <>
-          " #{Float.round(elem(List.last(points), 0), 1)},#{Float.round(zero_y, 1)}"
-
-      last_value = List.last(values)
-      line_color = if last_value >= 0, do: "#16a34a", else: "#dc2626"
-      fill_color = if last_value >= 0, do: "#16a34a20", else: "#dc262620"
-
-      assigns =
-        assigns
-        |> assign(:width, width)
-        |> assign(:height, height)
-        |> assign(:polyline_points, polyline_points)
-        |> assign(:area_points, area_points)
-        |> assign(:zero_y, zero_y)
-        |> assign(:line_color, line_color)
-        |> assign(:fill_color, fill_color)
-        |> assign(:chart_min, chart_min)
-        |> assign(:chart_max, chart_max)
-        |> assign(:labels, build_labels(data))
+      assigns = assign(assigns, :chart_data, chart_data)
 
       ~H"""
-      <div class="w-full overflow-hidden">
-        <svg viewBox={"0 -20 #{@width} #{@height + 40}"} class="w-full h-48">
-          <line x1="0" y1={@zero_y} x2={@width} y2={@zero_y} stroke="#a1a1aa" stroke-width="0.5" stroke-dasharray="4" />
-          <polygon points={@area_points} fill={@fill_color} />
-          <polyline points={@polyline_points} fill="none" stroke={@line_color} stroke-width="2" />
-          <text x="2" y="-5" font-size="10" fill="#a1a1aa">$<%= format_pnl(@chart_max) %></text>
-          <text x="2" y={@height + 12} font-size="10" fill="#a1a1aa">$<%= format_pnl(@chart_min) %></text>
-          <text :for={{label, x} <- @labels} x={x} y={@height + 25} font-size="9" fill="#a1a1aa" text-anchor="middle">
-            <%= label %>
-          </text>
-        </svg>
+      <div class="w-full h-48">
+        <canvas
+          id="pnl-chart"
+          phx-hook="ChartHook"
+          data-chart-type="pnl"
+          data-chart-data={@chart_data}
+          class="w-full h-full"
+        />
       </div>
       """
     end
@@ -454,19 +407,6 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
     end)
     |> elem(1)
     |> Enum.reverse()
-  end
-
-  defp build_labels(data) do
-    count = length(data)
-    step = max(div(count, 5), 1)
-
-    data
-    |> Enum.with_index()
-    |> Enum.filter(fn {_, i} -> rem(i, step) == 0 or i == count - 1 end)
-    |> Enum.map(fn {d, i} ->
-      x = if count > 1, do: i / (count - 1) * 800, else: 400
-      {Calendar.strftime(d.date, "%b %d"), x}
-    end)
   end
 
   defp top_outcomes(outcomes, n) when is_list(outcomes) do

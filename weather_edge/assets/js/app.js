@@ -77,6 +77,8 @@ Hooks.ChartHook = {
       return this.edgeHistoryConfig(rawData)
     } else if (chartType === "price_history") {
       return this.priceHistoryConfig(rawData)
+    } else if (chartType === "pnl") {
+      return this.pnlConfig(rawData)
     }
     return { type: "line", data: { labels: [], datasets: [] } }
   },
@@ -153,6 +155,57 @@ Hooks.ChartHook = {
           y: { ticks: { callback: v => v + "%" } }
         },
         plugins: { legend: { position: "bottom" } }
+      }
+    }
+  },
+  pnlConfig(data) {
+    const lastVal = data.values && data.values.length > 0 ? data.values[data.values.length - 1] : 0
+    const color = lastVal >= 0 ? "rgb(22, 163, 74)" : "rgb(220, 38, 38)"
+    const bgColor = lastVal >= 0 ? "rgba(22, 163, 74, 0.1)" : "rgba(220, 38, 38, 0.1)"
+
+    return {
+      type: "line",
+      data: {
+        labels: data.labels || [],
+        datasets: [
+          {
+            label: "Cumulative P&L",
+            data: data.values || [],
+            borderColor: color,
+            backgroundColor: bgColor,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 5
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            ticks: {
+              callback: v => (v >= 0 ? "+$" : "-$") + Math.abs(v).toFixed(2)
+            },
+            grid: { color: "rgba(161, 161, 170, 0.2)" }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { maxTicksLimit: 8 }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y
+                return "P&L: " + (v >= 0 ? "+$" : "-$") + Math.abs(v).toFixed(2)
+              }
+            }
+          }
+        }
       }
     }
   },
