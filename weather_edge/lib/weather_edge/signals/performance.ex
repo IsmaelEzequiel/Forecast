@@ -53,7 +53,7 @@ defmodule WeatherEdge.Signals.Performance do
     %{
       total_signals: total_signals,
       accuracy: accuracy,
-      accuracy_by_level: compute_accuracy_by_level(accuracy_records),
+      accuracy_by_level: compute_accuracy_by_level(accuracy_records, closed_positions),
       accuracy_by_station: compute_accuracy_by_station(accuracy_records, closed_positions),
       total_pnl: total_pnl,
       avg_edge: avg_edge,
@@ -79,7 +79,11 @@ defmodule WeatherEdge.Signals.Performance do
     |> Repo.all()
   end
 
-  defp compute_accuracy_by_level(records) do
+  defp compute_accuracy_by_level(records, positions) do
+    position_map =
+      positions
+      |> Enum.group_by(fn p -> {p.station_code, p.outcome_label} end)
+
     records
     |> Enum.filter(& &1.auto_buy_outcome)
     |> Enum.group_by(fn r ->
@@ -94,7 +98,18 @@ defmodule WeatherEdge.Signals.Performance do
       total = length(recs)
       correct = Enum.count(recs, & &1.resolution_correct)
       acc = if total > 0, do: correct / total, else: 0.0
-      {level, %{accuracy: acc, count: total}}
+
+      pnl =
+        recs
+        |> Enum.map(fn r ->
+          case Map.get(position_map, {r.station_code, r.auto_buy_outcome}, []) do
+            [pos | _] -> pos.realized_pnl || 0.0
+            _ -> 0.0
+          end
+        end)
+        |> Enum.sum()
+
+      {level, %{accuracy: acc, count: total, pnl: pnl}}
     end)
   end
 

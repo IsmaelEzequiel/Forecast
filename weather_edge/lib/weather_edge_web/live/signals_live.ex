@@ -201,6 +201,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
             <th class="px-3 py-1.5">Level</th>
             <th class="px-3 py-1.5">Count</th>
             <th class="px-3 py-1.5">Accuracy</th>
+            <th class="px-3 py-1.5">P&L</th>
           </tr>
         </thead>
         <tbody>
@@ -212,6 +213,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
             </td>
             <td class="px-3 py-1.5 text-zinc-700 dark:text-zinc-300"><%= data.count %></td>
             <td class="px-3 py-1.5 font-medium text-zinc-900 dark:text-zinc-100"><%= format_pct(data.accuracy) %></td>
+            <td class={"px-3 py-1.5 font-medium #{pnl_color(Map.get(data, :pnl, 0.0))}"}>$<%= format_price(Map.get(data, :pnl, 0.0)) %></td>
           </tr>
         </tbody>
       </table>
@@ -352,7 +354,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
             <th class="px-3 py-2">Action</th>
             <th class="px-3 py-2">Alert</th>
             <th class="px-3 py-2">Confidence</th>
-            <th class="px-3 py-2">Market</th>
+            <th class="px-3 py-2">Signal $</th>
+            <th class="px-3 py-2">Live $</th>
             <th class="px-3 py-2">Model</th>
             <th class="px-3 py-2">Edge</th>
             <th class="px-3 py-2">Volume</th>
@@ -367,7 +370,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
             phx-value-id={row.signal.id}
             class={[
               "border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors",
-              MapSet.member?(@highlighted, row.signal.id) && "bg-green-50 dark:bg-green-900/20 animate-pulse"
+              MapSet.member?(@highlighted, row.signal.id) && "bg-green-50 dark:bg-green-900/20 animate-pulse",
+              stale_row?(row) && "opacity-50"
             ]}
           >
             <td class="px-3 py-2">
@@ -383,13 +387,29 @@ defmodule WeatherEdgeWeb.SignalsLive do
               <%= format_time(row.signal.computed_at) %>
             </td>
             <td class="px-3 py-2">
-              <button
-                phx-click="filter_station"
-                phx-value-code={row.signal.station_code}
-                class="font-medium text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                <%= row.signal.station_code %>
-              </button>
+              <div class="flex items-center gap-1">
+                <button
+                  phx-click="filter_station"
+                  phx-value-code={row.signal.station_code}
+                  class="font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  <%= row.signal.station_code %>
+                </button>
+                <a
+                  :if={row.cluster.event_slug}
+                  href={"https://polymarket.com/event/#{row.cluster.event_slug}"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  phx-click={Phoenix.LiveView.JS.dispatch("click", bubbles: false)}
+                  class="text-zinc-400 hover:text-blue-500 dark:hover:text-blue-400"
+                  title="Open on Polymarket"
+                  onclick="event.stopPropagation()"
+                >
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
             </td>
             <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">
               <%= row.signal.outcome_label %>
@@ -412,11 +432,12 @@ defmodule WeatherEdgeWeb.SignalsLive do
             </td>
             <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
               $<%= format_price(row.signal.market_price) %>
-              <span
-                :if={stale_signal?(row)}
-                title="Price may be stale (>10% deviation from current market)"
-                class="ml-1 text-amber-500 dark:text-amber-400"
-              >⚠</span>
+            </td>
+            <td class="px-3 py-2 whitespace-nowrap">
+              <% live_price = current_outcome_price(row.cluster.outcomes, row.signal.outcome_label) %>
+              <span class={if(stale_signal?(row), do: "text-amber-600 dark:text-amber-400 font-medium", else: "text-zinc-700 dark:text-zinc-300")}>
+                $<%= format_price(live_price) %>
+              </span>
             </td>
             <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">
               <%= format_pct(row.signal.model_probability) %>
@@ -706,6 +727,36 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
     ~H"""
     <form phx-change="update_filter" class="flex-1 space-y-3">
+      <div class="flex flex-wrap gap-1.5 mb-1">
+        <button
+          type="button"
+          phx-click="preset_today"
+          class="px-2 py-0.5 text-[10px] font-medium rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          phx-click="preset_high_edge"
+          class="px-2 py-0.5 text-[10px] font-medium rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        >
+          High Edge >20%
+        </button>
+        <button
+          type="button"
+          phx-click="preset_with_position"
+          class="px-2 py-0.5 text-[10px] font-medium rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        >
+          Has Position
+        </button>
+        <button
+          type="button"
+          phx-click="preset_safe_no"
+          class="px-2 py-0.5 text-[10px] font-medium rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+        >
+          Safe NO
+        </button>
+      </div>
       <div class="flex flex-wrap gap-3 items-end">
         <div class="space-y-1">
           <label class="text-xs text-zinc-500 dark:text-zinc-400">Stations</label>
@@ -770,6 +821,19 @@ defmodule WeatherEdgeWeb.SignalsLive do
             min="0"
             max="1"
             step="0.01"
+            placeholder="Any"
+            class="block w-20 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
+          />
+        </div>
+
+        <div class="space-y-1">
+          <label class="text-xs text-zinc-500 dark:text-zinc-400">Min Liq $</label>
+          <input
+            type="number"
+            name="min_liquidity"
+            value={@filters.min_liquidity}
+            min="0"
+            step="10"
             placeholder="Any"
             class="block w-20 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           />
@@ -1320,6 +1384,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
       |> maybe_update_string(params, "has_position", :has_position)
       |> maybe_update_number(params, "min_edge", :min_edge)
       |> maybe_update_float(params, "max_price", :max_price)
+      |> maybe_update_float(params, "min_liquidity", :min_liquidity)
 
     reload_signals(socket, updated_filters)
   end
@@ -1331,6 +1396,22 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
   def handle_event("clear_filters", _params, socket) do
     reload_signals(socket, default_filters())
+  end
+
+  def handle_event("preset_today", _params, socket) do
+    reload_signals(socket, %{default_filters() | resolution_date: "today"})
+  end
+
+  def handle_event("preset_high_edge", _params, socket) do
+    reload_signals(socket, %{default_filters() | min_edge: 20})
+  end
+
+  def handle_event("preset_with_position", _params, socket) do
+    reload_signals(socket, %{default_filters() | has_position: "with_position"})
+  end
+
+  def handle_event("preset_safe_no", _params, socket) do
+    reload_signals(socket, %{default_filters() | alert_level: "safe_no"})
   end
 
   def handle_event("toggle_select", %{"id" => id}, socket) do
@@ -1478,24 +1559,6 @@ defmodule WeatherEdgeWeb.SignalsLive do
     end
   end
 
-  def handle_info({:detail_buy_result, side, signal, amount, result}, socket) do
-    socket = assign(socket, :buying, false)
-
-    case result do
-      {:ok, _order} ->
-        updated_detail = DetailData.fetch_signal_detail(signal.id)
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "#{side} order placed for #{signal.outcome_label} ($#{format_price(amount)})")
-         |> assign(:detail_data, updated_detail)
-         |> then(&do_reload_signals(&1, &1.assigns.filters))}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Order failed: #{inspect(reason)}")}
-    end
-  end
-
   def handle_event("buy_best", %{"signal-id" => signal_id_str}, socket) do
     signal_id = String.to_integer(signal_id_str)
 
@@ -1564,6 +1627,24 @@ defmodule WeatherEdgeWeb.SignalsLive do
   end
 
   @impl true
+  def handle_info({:detail_buy_result, side, signal, amount, result}, socket) do
+    socket = assign(socket, :buying, false)
+
+    case result do
+      {:ok, _order} ->
+        updated_detail = DetailData.fetch_signal_detail(signal.id)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "#{side} order placed for #{signal.outcome_label} ($#{format_price(amount)})")
+         |> assign(:detail_data, updated_detail)
+         |> then(&do_reload_signals(&1, &1.assigns.filters))}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Order failed: #{inspect(reason)}")}
+    end
+  end
+
   def handle_info(:load_performance, socket) do
     performance_data = Performance.compute_stats()
     {:noreply, assign(socket, :performance_data, performance_data)}
@@ -1693,6 +1774,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
     signals = Queries.list_filtered_signals(filters)
     total_count = Queries.count_filtered_signals(filters)
 
+    signals = apply_client_filters(signals, filters)
+
     assign(socket,
       filters: filters,
       signals: signals,
@@ -1700,6 +1783,31 @@ defmodule WeatherEdgeWeb.SignalsLive do
       offset: 0
     )
   end
+
+  defp apply_client_filters(signals, filters) do
+    signals
+    |> filter_by_liquidity(Map.get(filters, :min_liquidity))
+  end
+
+  defp filter_by_liquidity(signals, nil), do: signals
+
+  defp filter_by_liquidity(signals, min_liq) when is_number(min_liq) and min_liq > 0 do
+    Enum.filter(signals, fn row ->
+      liq = outcome_liquidity(row.cluster.outcomes, row.signal.outcome_label)
+      liq >= min_liq
+    end)
+  end
+
+  defp filter_by_liquidity(signals, _), do: signals
+
+  defp outcome_liquidity(outcomes, label) when is_list(outcomes) do
+    case Enum.find(outcomes, fn o -> (o["outcome_label"] || o["label"]) == label end) do
+      %{"liquidity" => liq} when is_number(liq) -> liq
+      _ -> 0.0
+    end
+  end
+
+  defp outcome_liquidity(_, _), do: 0.0
 
   defp find_signal_row(signals, signal_id) do
     Enum.find(signals, fn row -> row.signal.id == signal_id end)
@@ -1955,7 +2063,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
       alert_level: "all",
       sort_by: "edge_desc",
       actionable_only: false,
-      has_position: "all"
+      has_position: "all",
+      min_liquidity: nil
     }
   end
 
@@ -2019,11 +2128,27 @@ defmodule WeatherEdgeWeb.SignalsLive do
   defp format_time(nil), do: "-"
 
   defp format_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%H:%M")
+    diff_seconds = DateTime.diff(DateTime.utc_now(), dt, :second)
+    relative_time(diff_seconds)
   end
 
   defp format_time(%NaiveDateTime{} = ndt) do
-    Calendar.strftime(ndt, "%H:%M")
+    now = NaiveDateTime.utc_now()
+    diff_seconds = NaiveDateTime.diff(now, ndt, :second)
+    relative_time(diff_seconds)
+  end
+
+  defp relative_time(seconds) when seconds < 60, do: "now"
+  defp relative_time(seconds) when seconds < 3600, do: "#{div(seconds, 60)}m"
+  defp relative_time(seconds) when seconds < 86400, do: "#{div(seconds, 3600)}h"
+  defp relative_time(seconds), do: "#{div(seconds, 86400)}d"
+
+  defp stale_row?(row) do
+    case row.signal.computed_at do
+      %DateTime{} = dt -> DateTime.diff(DateTime.utc_now(), dt, :second) > 1800
+      %NaiveDateTime{} = ndt -> NaiveDateTime.diff(NaiveDateTime.utc_now(), ndt, :second) > 1800
+      _ -> false
+    end
   end
 
   defp format_price(nil), do: "0.00"

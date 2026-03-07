@@ -24,6 +24,7 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
       end)
       |> Enum.filter(fn s -> s.count > 0 end)
 
+    model_leaderboard = build_model_leaderboard(station_stats)
     cumulative_pnl = build_cumulative(daily_pnl)
 
     # Closed trades
@@ -72,7 +73,8 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
        recent_signals: recent_signals,
        station_clusters: station_clusters,
        balance: cached_balance,
-       wallet_address: wallet_address
+       wallet_address: wallet_address,
+       model_leaderboard: model_leaderboard
      )}
   end
 
@@ -306,6 +308,37 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
         </div>
       </div>
 
+      <!-- Model Accuracy Leaderboard -->
+      <div :if={@model_leaderboard != []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+        <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-4">Model Accuracy Leaderboard</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-zinc-200 dark:border-zinc-700 text-xs text-zinc-500 dark:text-zinc-400">
+                <th class="text-left py-2 pr-4">#</th>
+                <th class="text-left py-2 px-3">Model</th>
+                <th class="text-right py-2 px-3">Events</th>
+                <th class="text-right py-2 px-3">MAE</th>
+                <th class="text-right py-2 px-3">Mean Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={{model, idx} <- Enum.with_index(@model_leaderboard, 1)} class="border-b border-zinc-100 dark:border-zinc-800">
+                <td class="py-2 pr-4 text-zinc-400 font-mono text-xs"><%= idx %></td>
+                <td class="py-2 px-3 font-medium text-zinc-900 dark:text-zinc-100"><%= model.name %></td>
+                <td class="py-2 px-3 text-right text-zinc-600 dark:text-zinc-400"><%= model.count %></td>
+                <td class="py-2 px-3 text-right text-zinc-600 dark:text-zinc-400"><%= Float.round(model.mae, 1) %>&deg;</td>
+                <td class="py-2 px-3 text-right">
+                  <span class={if model.mean_error >= 0, do: "text-orange-600", else: "text-blue-600"}>
+                    <%= if model.mean_error >= 0, do: "+", else: "" %><%= Float.round(model.mean_error, 1) %>&deg;
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Recent Closed Trades -->
       <div :if={@recent_trades != []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
         <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-4">Recent Closed Trades</h3>
@@ -496,6 +529,31 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
     "https://polymarket.com/event/#{slug}"
   end
   defp signal_url(_), do: nil
+
+  defp build_model_leaderboard(station_stats) do
+    station_stats
+    |> Enum.flat_map(fn stat ->
+      Map.get(stat, :model_stats, %{})
+      |> Enum.map(fn {model_name, model_data} ->
+        {model_name, model_data}
+      end)
+    end)
+    |> Enum.group_by(fn {name, _} -> name end, fn {_, data} -> data end)
+    |> Enum.map(fn {name, entries} ->
+      total_count = Enum.sum(Enum.map(entries, & &1.count))
+      weighted_mae = Enum.sum(Enum.map(entries, fn e -> e.mae * e.count end))
+      weighted_me = Enum.sum(Enum.map(entries, fn e -> e.mean_error * e.count end))
+
+      %{
+        name: name,
+        count: total_count,
+        mae: if(total_count > 0, do: weighted_mae / total_count, else: 0.0),
+        mean_error: if(total_count > 0, do: weighted_me / total_count, else: 0.0)
+      }
+    end)
+    |> Enum.filter(fn m -> m.count > 0 end)
+    |> Enum.sort_by(& &1.mae)
+  end
 
   defp best_model(%{model_stats: model_stats}) when map_size(model_stats) > 0 do
     {model, _} = Enum.min_by(model_stats, fn {_m, s} -> s.mae end)
