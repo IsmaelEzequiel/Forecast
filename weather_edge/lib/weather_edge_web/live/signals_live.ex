@@ -5,6 +5,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   alias WeatherEdge.Signals.Queries
   alias WeatherEdge.Signals.DetailData
   alias WeatherEdge.Signals.GroupedView
+  alias WeatherEdge.Signals.HeatmapData
   alias WeatherEdge.Stations
   alias WeatherEdge.Markets
   alias WeatherEdge.Trading.OrderManager
@@ -77,6 +78,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
             <.signals_table signals={@signals} selected={@selected} total_count={@total_count} />
           <% :grouped -> %>
             <.grouped_view signals={@signals} />
+          <% :heatmap -> %>
+            <.heatmap_view signals={@signals} />
           <% _other -> %>
             <div class="p-4">
               <p class="text-sm text-zinc-500 dark:text-zinc-400">
@@ -391,6 +394,65 @@ defmodule WeatherEdgeWeb.SignalsLive do
     payout = tokens * 1.0 - amount
     :erlang.float_to_binary(payout, decimals: 2)
   end
+
+  defp heatmap_view(assigns) do
+    heatmap = HeatmapData.build_heatmap(assigns.signals)
+    assigns = assign(assigns, :heatmap, heatmap)
+
+    ~H"""
+    <div class="overflow-x-auto p-4">
+      <div :if={@heatmap.stations == []} class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-6">
+        No signals available for heatmap
+      </div>
+      <table :if={@heatmap.stations != []} class="w-full text-xs">
+        <thead>
+          <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
+            <th class="px-3 py-2 font-medium">Station</th>
+            <th :for={d <- @heatmap.dates} class="px-3 py-2 font-medium text-center"><%= d.label %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={station <- @heatmap.stations} class="border-b border-zinc-100 dark:border-zinc-800">
+            <td class="px-3 py-2">
+              <span class="font-medium text-zinc-900 dark:text-zinc-100"><%= station.code %></span>
+              <span :if={station.city} class="ml-1 text-zinc-400 dark:text-zinc-500"><%= station.city %></span>
+            </td>
+            <td
+              :for={{cell, idx} <- Enum.with_index(station.cells)}
+              class="px-3 py-2 text-center"
+            >
+              <div
+                :if={cell.has_event}
+                phx-click="heatmap_click"
+                phx-value-station={station.code}
+                phx-value-date={Enum.at(@heatmap.dates, idx).date |> Date.to_iso8601()}
+                class={[
+                  "relative rounded-lg px-3 py-2 cursor-pointer transition-colors font-bold",
+                  heatmap_cell_color(cell.best_edge)
+                ]}
+              >
+                <%= format_edge(cell.best_edge) %>
+                <span :if={cell.has_position} class="absolute top-1 right-1 w-2 h-2 rounded-full bg-purple-500" />
+              </div>
+              <div
+                :if={!cell.has_event}
+                class="rounded-lg px-3 py-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-300 dark:text-zinc-600"
+              >
+                -
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp heatmap_cell_color(nil), do: "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500"
+  defp heatmap_cell_color(edge) when edge < 8, do: "bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-400"
+  defp heatmap_cell_color(edge) when edge < 15, do: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+  defp heatmap_cell_color(edge) when edge < 25, do: "bg-green-300 dark:bg-green-800/50 text-green-800 dark:text-green-300"
+  defp heatmap_cell_color(_edge), do: "bg-green-500 dark:bg-green-700 text-white"
 
   defp format_return_pct(row) do
     amount = row.station.buy_amount_usdc || 5.0
@@ -1128,6 +1190,20 @@ defmodule WeatherEdgeWeb.SignalsLive do
     reload_signals(socket, filters)
   end
 
+  def handle_event("heatmap_click", %{"station" => station, "date" => date_str}, socket) do
+    resolution_date = heatmap_date_to_filter(date_str)
+
+    filters =
+      %{default_filters() | stations: [station], resolution_date: resolution_date}
+
+    socket =
+      socket
+      |> assign(:view_mode, :table)
+      |> do_reload_signals(filters)
+
+    {:noreply, socket}
+  end
+
   def handle_event("buy_selected", _params, socket) do
     selected = socket.assigns.selected
     signals = socket.assigns.signals
@@ -1452,6 +1528,19 @@ defmodule WeatherEdgeWeb.SignalsLive do
       actionable_only: false,
       has_position: "all"
     }
+  end
+
+  defp heatmap_date_to_filter(date_str) do
+    date = Date.from_iso8601!(date_str)
+    today = Date.utc_today()
+
+    case Date.diff(date, today) do
+      0 -> "today"
+      1 -> "tomorrow"
+      2 -> "+2d"
+      3 -> "+3d"
+      _ -> "all"
+    end
   end
 
   # Detail panel helpers
