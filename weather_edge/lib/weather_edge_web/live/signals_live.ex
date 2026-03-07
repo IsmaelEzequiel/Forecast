@@ -3,6 +3,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
   alias WeatherEdge.PubSubHelper
   alias WeatherEdge.Signals.Queries
+  alias WeatherEdge.Signals.DetailData
   alias WeatherEdge.Stations
   alias WeatherEdge.Markets
   alias WeatherEdge.Trading.OrderManager
@@ -44,6 +45,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
        selected: MapSet.new(),
        view_mode: :table,
        detail_signal_id: nil,
+       detail_data: nil,
+       detail_loading: false,
        balance: cached_balance,
        wallet_address: wallet_address,
        station_codes: station_codes,
@@ -84,6 +87,18 @@ defmodule WeatherEdgeWeb.SignalsLive do
         balance={@balance}
         buying={@buying}
         buy_progress={@buy_progress}
+      />
+
+      <.detail_panel
+        :if={@detail_signal_id != nil}
+        detail_data={@detail_data}
+        detail_loading={@detail_loading}
+      />
+
+      <div
+        :if={@detail_signal_id != nil}
+        phx-click="close_detail"
+        class="fixed inset-0 z-40 bg-black/20"
       />
     </div>
     """
@@ -465,6 +480,233 @@ defmodule WeatherEdgeWeb.SignalsLive do
     """
   end
 
+  defp detail_panel(assigns) do
+    ~H"""
+    <div class="fixed top-0 right-0 w-2/5 h-full z-50 bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-700 shadow-xl overflow-y-auto transition-transform">
+      <div class="sticky top-0 z-10 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-4 py-3 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Signal Detail</h2>
+        <button
+          phx-click="close_detail"
+          class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-lg leading-none"
+        >
+          &times;
+        </button>
+      </div>
+
+      <%= if @detail_loading do %>
+        <div class="flex items-center justify-center py-16">
+          <div class="text-sm text-zinc-500 dark:text-zinc-400">Loading detail...</div>
+        </div>
+      <% else %>
+        <%= if @detail_data do %>
+          <div class="p-4 space-y-5">
+            <.detail_header
+              signal={@detail_data.signal}
+              cluster={@detail_data.cluster}
+              station={@detail_data.station}
+            />
+
+            <.distribution_section
+              distribution={@detail_data.distribution}
+              cluster={@detail_data.cluster}
+            />
+
+            <.model_breakdown_section snapshots={@detail_data.model_breakdown} />
+
+            <.orderbook_section orderbook={@detail_data.orderbook} />
+
+            <.metar_section metar={@detail_data.metar} />
+
+            <.position_section position={@detail_data.position} />
+
+            <.polymarket_link cluster={@detail_data.cluster} />
+          </div>
+        <% else %>
+          <div class="flex items-center justify-center py-16">
+            <div class="text-sm text-zinc-500 dark:text-zinc-400">Signal not found</div>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+    """
+  end
+
+  defp detail_header(assigns) do
+    ~H"""
+    <div class="space-y-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-base font-bold text-zinc-900 dark:text-zinc-100"><%= @station.code %></span>
+        <span class="text-sm text-zinc-500 dark:text-zinc-400"><%= @station.city %></span>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300"><%= @signal.outcome_label %></span>
+        <span class="text-xs text-zinc-500 dark:text-zinc-400"><%= @cluster.target_date %></span>
+        <span class={["font-bold text-sm", edge_color(@signal.edge)]}>
+          <%= format_edge(@signal.edge) %>
+        </span>
+        <span class={["px-1.5 py-0.5 rounded text-[10px] font-medium", alert_class(@signal.alert_level)]}>
+          <%= format_alert(@signal.alert_level) %>
+        </span>
+        <span class={["px-1.5 py-0.5 rounded text-[10px] font-medium", confidence_class(@signal.confidence)]}>
+          <%= @signal.confidence || "-" %>
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  defp distribution_section(assigns) do
+    outcomes =
+      if assigns.distribution do
+        assigns.distribution.probabilities
+        |> Enum.sort_by(fn {_label, prob} -> prob end, :desc)
+      else
+        []
+      end
+
+    market_prices = build_market_price_map(assigns.cluster.outcomes)
+
+    assigns =
+      assigns
+      |> assign(:outcomes, outcomes)
+      |> assign(:market_prices, market_prices)
+
+    ~H"""
+    <div class="space-y-2">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Cluster Distribution</h3>
+      <div :if={@outcomes == []} class="text-xs text-zinc-400">No distribution data available</div>
+      <div :for={{label, model_prob} <- @outcomes} class="space-y-0.5">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-zinc-700 dark:text-zinc-300 w-24 truncate"><%= label %></span>
+          <span class="text-zinc-500 dark:text-zinc-400">
+            M: <%= format_pct(model_prob) %> | P: $<%= format_price(Map.get(@market_prices, label, 0)) %>
+          </span>
+        </div>
+        <div class="flex gap-0.5 h-2">
+          <div class="bg-blue-500 rounded-sm" style={"width: #{model_prob * 100}%"} title={"Model: #{format_pct(model_prob)}"}></div>
+          <div class="bg-orange-400 rounded-sm" style={"width: #{Map.get(@market_prices, label, 0) * 100}%"} title={"Market: $#{format_price(Map.get(@market_prices, label, 0))}"}></div>
+        </div>
+        <div class="text-[10px] text-zinc-400">
+          Edge: <%= format_edge(model_prob - Map.get(@market_prices, label, 0)) %>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp model_breakdown_section(assigns) do
+    ~H"""
+    <div class="space-y-2">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Model Breakdown</h3>
+      <div :if={@snapshots == []} class="text-xs text-zinc-400">No model data available</div>
+      <div :if={@snapshots != []} class="space-y-1">
+        <div
+          :for={snapshot <- @snapshots}
+          class="flex items-center justify-between text-xs py-1 border-b border-zinc-100 dark:border-zinc-800"
+        >
+          <span class="text-zinc-700 dark:text-zinc-300 font-medium"><%= snapshot.model %></span>
+          <span class="text-zinc-600 dark:text-zinc-400"><%= snapshot.max_temp_c %>&deg;C</span>
+        </div>
+        <div class="text-xs text-zinc-500 dark:text-zinc-400 pt-1">
+          Consensus: <%= consensus_count(@snapshots) %> models
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp orderbook_section(assigns) do
+    ~H"""
+    <div class="space-y-2">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Orderbook</h3>
+      <div :if={@orderbook == nil} class="text-xs text-zinc-400">Orderbook unavailable</div>
+      <div :if={@orderbook != nil} class="grid grid-cols-3 gap-2 text-xs">
+        <div class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Best Bid</div>
+          <div class="text-green-600 dark:text-green-400 font-medium">
+            $<%= format_book_price(@orderbook.best_bid) %>
+          </div>
+          <div class="text-zinc-400 text-[10px]"><%= format_book_size(@orderbook.best_bid) %> shares</div>
+        </div>
+        <div class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Best Ask</div>
+          <div class="text-red-600 dark:text-red-400 font-medium">
+            $<%= format_book_price(@orderbook.best_ask) %>
+          </div>
+          <div class="text-zinc-400 text-[10px]"><%= format_book_size(@orderbook.best_ask) %> shares</div>
+        </div>
+        <div class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Spread</div>
+          <div class="text-zinc-700 dark:text-zinc-300 font-medium">
+            $<%= format_price(@orderbook.spread || 0) %>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp metar_section(assigns) do
+    ~H"""
+    <div :if={@metar != nil} class="space-y-2">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">METAR Conditions</h3>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <div :if={@metar.conditions != nil} class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Current Temp</div>
+          <div class="text-zinc-900 dark:text-zinc-100 font-medium"><%= @metar.conditions[:temperature_c] || @metar.conditions["temperature_c"] %>&deg;C</div>
+        </div>
+        <div :if={@metar.todays_high != nil} class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Today's Max Observed</div>
+          <div class="text-zinc-900 dark:text-zinc-100 font-medium"><%= @metar.todays_high %>&deg;C</div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp position_section(assigns) do
+    ~H"""
+    <div :if={@position != nil} class="space-y-2">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Position</h3>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Tokens</div>
+          <div class="text-zinc-900 dark:text-zinc-100 font-medium"><%= format_tokens(@position.tokens) %></div>
+        </div>
+        <div class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Avg Buy Price</div>
+          <div class="text-zinc-900 dark:text-zinc-100 font-medium">$<%= format_price(@position.avg_buy_price) %></div>
+        </div>
+        <div class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Current Price</div>
+          <div class="text-zinc-900 dark:text-zinc-100 font-medium">$<%= format_price(@position.current_price) %></div>
+        </div>
+        <div class="space-y-1">
+          <div class="text-zinc-500 dark:text-zinc-400">Unrealized P&amp;L</div>
+          <div class={["font-medium", if((@position.unrealized_pnl || 0) >= 0, do: "text-green-600 dark:text-green-400", else: "text-red-600 dark:text-red-400")]}>
+            $<%= format_price(@position.unrealized_pnl || 0) %>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp polymarket_link(assigns) do
+    ~H"""
+    <div :if={@cluster.event_slug} class="pt-2">
+      <a
+        href={"https://polymarket.com/event/#{@cluster.event_slug}"}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+      >
+        Open on Polymarket &rarr;
+      </a>
+    </div>
+    """
+  end
+
   @impl true
   def handle_event("set_view", %{"mode" => mode}, socket) when mode in ~w(table grouped heatmap) do
     {:noreply, assign(socket, :view_mode, String.to_existing_atom(mode))}
@@ -511,7 +753,24 @@ defmodule WeatherEdgeWeb.SignalsLive do
   end
 
   def handle_event("open_detail", %{"id" => id}, socket) do
-    {:noreply, assign(socket, :detail_signal_id, String.to_integer(id))}
+    signal_id = String.to_integer(id)
+    send(self(), {:load_detail, signal_id})
+
+    {:noreply,
+     assign(socket,
+       detail_signal_id: signal_id,
+       detail_data: nil,
+       detail_loading: true
+     )}
+  end
+
+  def handle_event("close_detail", _params, socket) do
+    {:noreply,
+     assign(socket,
+       detail_signal_id: nil,
+       detail_data: nil,
+       detail_loading: false
+     )}
   end
 
   def handle_event("filter_station", %{"code" => code}, socket) do
@@ -573,6 +832,20 @@ defmodule WeatherEdgeWeb.SignalsLive do
   end
 
   @impl true
+  def handle_info({:load_detail, signal_id}, socket) do
+    if socket.assigns.detail_signal_id == signal_id do
+      detail_data = DetailData.fetch_signal_detail(signal_id)
+
+      {:noreply,
+       assign(socket,
+         detail_data: detail_data,
+         detail_loading: false
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info({:execute_buy_batch, selected_signals}, socket) do
     total = length(selected_signals)
     results = execute_orders_sequentially(selected_signals, total, socket)
@@ -727,6 +1000,48 @@ defmodule WeatherEdgeWeb.SignalsLive do
       has_position: "all"
     }
   end
+
+  # Detail panel helpers
+
+  defp build_market_price_map(outcomes) when is_list(outcomes) do
+    Map.new(outcomes, fn o ->
+      label = o["outcome_label"] || o["label"] || ""
+      price = o["price"] || o["yes_price"] || 0
+      {label, price}
+    end)
+  end
+
+  defp build_market_price_map(_), do: %{}
+
+  defp consensus_count(snapshots) when is_list(snapshots) do
+    snapshots
+    |> Enum.map(& &1.max_temp_c)
+    |> Enum.frequencies()
+    |> Enum.max_by(fn {_temp, count} -> count end, fn -> {nil, 0} end)
+    |> elem(1)
+  end
+
+  defp consensus_count(_), do: 0
+
+  defp format_book_price(nil), do: "-"
+  defp format_book_price(%{"price" => price}), do: format_price(parse_book_val(price))
+  defp format_book_price(%{price: price}), do: format_price(parse_book_val(price))
+  defp format_book_price(_), do: "-"
+
+  defp format_book_size(nil), do: "-"
+  defp format_book_size(%{"size" => size}), do: format_price(parse_book_val(size))
+  defp format_book_size(%{size: size}), do: format_price(parse_book_val(size))
+  defp format_book_size(_), do: "-"
+
+  defp parse_book_val(val) when is_binary(val) do
+    case Float.parse(val) do
+      {num, _} -> num
+      :error -> 0.0
+    end
+  end
+
+  defp parse_book_val(val) when is_number(val), do: val * 1.0
+  defp parse_book_val(_), do: 0.0
 
   # Formatting helpers
 
