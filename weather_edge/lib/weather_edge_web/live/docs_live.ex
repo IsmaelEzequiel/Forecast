@@ -794,57 +794,103 @@ defmodule WeatherEdgeWeb.DocsLive do
       <section id="workers" class="space-y-3">
         <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">17. Background Workers</h2>
         <p class="text-sm text-zinc-500">
-          Oban-powered jobs that run automatically:
+          Oban-powered jobs that run on cron schedules. All workers can also be triggered manually
+          via the <strong>Workers panel</strong> on the dashboard. Each button shows what the worker does
+          and when it last ran.
         </p>
-        <dl class="space-y-2 text-sm">
-          <div>
-            <dt class="font-semibold text-zinc-700">ForecastRefreshWorker</dt>
-            <dd class="text-zinc-500 ml-4">
-              Fetches multi-model weather forecasts every 15 minutes.
-              Sources: GFS, ECMWF IFS, ICON, GEM, JMA, UKMO, ARPEGE (via Open-Meteo) + Weather Underground (web scrape).
-              Stores snapshots in <code class="text-xs bg-zinc-100 px-1 rounded">forecast_snapshots</code>.
+
+        <div class="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-3 text-sm text-blue-800 dark:text-blue-300 mb-4">
+          <strong>Common tasks:</strong>
+          <ul class="list-disc ml-4 mt-1 space-y-1">
+            <li><strong>New market opened on Polymarket?</strong> &rarr; Click <em>Scan Events</em> to discover it</li>
+            <li><strong>Want fresh predictions / Model Breakdown?</strong> &rarr; Click <em>Refresh Forecasts</em> (fetches all 8 models)</li>
+            <li><strong>Want new signals?</strong> &rarr; Click <em>Detect Mispricings</em> (runs after forecasts are refreshed)</li>
+            <li><strong>Past event not resolved?</strong> &rarr; Click <em>Resolve Events</em> (fetches actual temp, closes positions)</li>
+          </ul>
+        </div>
+
+        <dl class="space-y-3 text-sm">
+          <div class="rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3">
+            <dt class="font-semibold text-zinc-700 dark:text-zinc-300">Scan Events
+              <span class="font-normal text-zinc-400 ml-1">(EventScannerWorker)</span>
+            </dt>
+            <dd class="text-zinc-500 dark:text-zinc-400 mt-1">
+              Discovers new Polymarket temperature events via the Gamma API.
+              Creates market clusters for each new event found.
+              <br/><strong>Cron:</strong> Every 2 hours. <strong>Dashboard button:</strong> Scan Events.
+              <br/><strong>Per-station:</strong> "Scan Events" button on each station card.
             </dd>
           </div>
-          <div>
-            <dt class="font-semibold text-zinc-700">MispricingWorker</dt>
-            <dd class="text-zinc-500 ml-4">
-              Cron runs every 5 minutes. Uses timezone-aware adaptive scanning:
-              post-peak and near-peak stations are scanned every run, pre-peak every other run,
-              night stations every third run. Compares forecast distributions to market prices,
-              applies observed temperature overrides for today's markets, and tags each signal
-              with a confidence level.
+          <div class="rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3">
+            <dt class="font-semibold text-zinc-700 dark:text-zinc-300">Refresh Forecasts
+              <span class="font-normal text-zinc-400 ml-1">(ForecastRefreshWorker)</span>
+            </dt>
+            <dd class="text-zinc-500 dark:text-zinc-400 mt-1">
+              Fetches temperature predictions from all 8 weather models (GFS, ECMWF, ICON, GEM, JMA, UKMO, ARPEGE, Wunderground).
+              Stores snapshots that power the <strong>Model Breakdown</strong> and the probability distribution.
+              <br/><strong>Cron:</strong> Every 15 minutes. <strong>Dashboard button:</strong> Refresh Forecasts.
+              <br/><strong>Per-station:</strong> "Refresh Forecasts" button on each station card.
             </dd>
           </div>
-          <div>
-            <dt class="font-semibold text-zinc-700">EventScannerWorker</dt>
-            <dd class="text-zinc-500 ml-4">
-              Discovers new Polymarket temperature events via the Gamma API using station tag slugs.
-              Creates <code class="text-xs bg-zinc-100 px-1 rounded">market_clusters</code> for new events.
+          <div class="rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3">
+            <dt class="font-semibold text-zinc-700 dark:text-zinc-300">Detect Mispricings
+              <span class="font-normal text-zinc-400 ml-1">(MispricingWorker)</span>
+            </dt>
+            <dd class="text-zinc-500 dark:text-zinc-400 mt-1">
+              Compares model probability distribution vs Polymarket prices for every active market.
+              Generates signals (Opportunity, Strong, Extreme, Safe NO) when edge exceeds thresholds.
+              Uses observed temperature overrides for today's markets.
+              <br/><strong>Cron:</strong> Every 5 minutes (adaptive by peak status). <strong>Dashboard button:</strong> Detect Mispricings.
             </dd>
           </div>
-          <div>
-            <dt class="font-semibold text-zinc-700">AutoBuyerWorker</dt>
-            <dd class="text-zinc-500 ml-4">
+          <div class="rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3">
+            <dt class="font-semibold text-zinc-700 dark:text-zinc-300">Snapshot Prices
+              <span class="font-normal text-zinc-400 ml-1">(PriceSnapshotWorker)</span>
+            </dt>
+            <dd class="text-zinc-500 dark:text-zinc-400 mt-1">
+              Saves current Polymarket YES/NO prices for all active markets.
+              Updates the <code class="text-xs bg-zinc-100 dark:bg-zinc-700 px-1 rounded">current_price</code> on open positions for P&amp;L tracking.
+              <br/><strong>Cron:</strong> Every 5 minutes. <strong>Dashboard button:</strong> Snapshot Prices.
+            </dd>
+          </div>
+          <div class="rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3">
+            <dt class="font-semibold text-zinc-700 dark:text-zinc-300">Monitor Positions
+              <span class="font-normal text-zinc-400 ml-1">(PositionMonitorWorker)</span>
+            </dt>
+            <dd class="text-zinc-500 dark:text-zinc-400 mt-1">
+              Checks all open positions and updates unrealized P&amp;L based on current market prices.
+              <br/><strong>Cron:</strong> Every 10 minutes. <strong>Dashboard button:</strong> Monitor Positions.
+            </dd>
+          </div>
+          <div class="rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3">
+            <dt class="font-semibold text-zinc-700 dark:text-zinc-300">Resolve Events
+              <span class="font-normal text-zinc-400 ml-1">(ResolutionWorker)</span>
+            </dt>
+            <dd class="text-zinc-500 dark:text-zinc-400 mt-1">
+              Closes expired market clusters: fetches the actual high temperature from Weather Underground,
+              marks the cluster as resolved, determines winning outcome, and finalizes position P&amp;L (win/loss).
+              Also records calibration data for model accuracy tracking.
+              <br/><strong>Cron:</strong> 3x daily (6h, 12h, 23h UTC). <strong>Dashboard button:</strong> Resolve Events.
+            </dd>
+          </div>
+          <div class="rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3">
+            <dt class="font-semibold text-zinc-700 dark:text-zinc-300">Auto-Buyer
+              <span class="font-normal text-zinc-400 ml-1">(AutoBuyerWorker)</span>
+            </dt>
+            <dd class="text-zinc-500 dark:text-zinc-400 mt-1">
               Executes buy orders through the Node.js sidecar when strong signals are detected
               and the station has auto-buy enabled. For today's markets, only executes on
-              confirmed or high confidence signals (post-peak/near-peak). Pre-peak forecast-only
-              signals are skipped to avoid risky trades.
+              confirmed or high confidence signals (post-peak/near-peak).
+              <br/><strong>Triggered by:</strong> MispricingWorker when conditions are met. Not on cron.
             </dd>
           </div>
-          <div>
-            <dt class="font-semibold text-zinc-700">PriceSnapshotWorker</dt>
-            <dd class="text-zinc-500 ml-4">
-              Periodically snapshots current Polymarket prices for active markets.
-              Updates position current prices for P&amp;L tracking.
-            </dd>
-          </div>
-          <div>
-            <dt class="font-semibold text-zinc-700">Position Reconciliation</dt>
-            <dd class="text-zinc-500 ml-4">
+          <div class="rounded-md border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3">
+            <dt class="font-semibold text-zinc-700 dark:text-zinc-300">Position Reconciliation</dt>
+            <dd class="text-zinc-500 dark:text-zinc-400 mt-1">
               Runs on every sidecar sync (~30s). Compares Polymarket open positions with DB positions.
               When a DB "open" position is no longer on Polymarket (sold or resolved), it is
-              automatically marked as closed with calculated realized P&amp;L. This powers the
-              Today's Realized and Total Realized metrics.
+              automatically marked as closed with calculated realized P&amp;L.
+              <br/><strong>Triggered by:</strong> Sidecar sync. Not on cron.
             </dd>
           </div>
         </dl>
