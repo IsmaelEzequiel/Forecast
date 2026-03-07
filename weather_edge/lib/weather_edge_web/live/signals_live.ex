@@ -283,7 +283,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
   defp quick_actions_bar(assigns) do
     selected_signals = Enum.filter(assigns.signals, fn row -> MapSet.member?(assigns.selected, row.signal.id) end)
-    estimated_cost = Enum.reduce(selected_signals, 0.0, fn row, acc -> acc + (row.station.buy_amount_usdc || 5.0) end)
+    buy_amount = assigns[:detail_buy_amount]
+    estimated_cost = Enum.reduce(selected_signals, 0.0, fn row, acc -> acc + (buy_amount || row.station.buy_amount_usdc || 1.0) end)
     selected_count = MapSet.size(assigns.selected)
 
     assigns =
@@ -1382,9 +1383,11 @@ defmodule WeatherEdgeWeb.SignalsLive do
     selected_signals =
       Enum.filter(signals, fn row -> MapSet.member?(selected, row.signal.id) end)
 
+    buy_amount = socket.assigns.detail_buy_amount
+
     estimated_cost =
       Enum.reduce(selected_signals, 0.0, fn row, acc ->
-        acc + (row.station.buy_amount_usdc || 5.0)
+        acc + (buy_amount || row.station.buy_amount_usdc || 1.0)
       end)
 
     min_reserve = Application.get_env(:weather_edge, :trading)[:min_reserve_usdc] || 0.50
@@ -1664,7 +1667,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   end
 
   defp execute_single_buy(socket, row) do
-    amount = row.station.buy_amount_usdc || 5.0
+    amount = socket.assigns.detail_buy_amount || row.station.buy_amount_usdc || 1.0
     outcome = build_outcome(row)
 
     case OrderManager.place_buy_order(row.signal.station_code, outcome, amount) do
@@ -1679,13 +1682,15 @@ defmodule WeatherEdgeWeb.SignalsLive do
     end
   end
 
-  defp execute_orders_sequentially(selected_signals, total, _socket) do
+  defp execute_orders_sequentially(selected_signals, total, socket) do
+    buy_amount = socket.assigns.detail_buy_amount
+
     selected_signals
     |> Enum.with_index(1)
     |> Enum.map(fn {row, n} ->
       send(self(), {:buy_progress, n, total})
 
-      amount = row.station.buy_amount_usdc || 5.0
+      amount = buy_amount || row.station.buy_amount_usdc || 1.0
 
       outcome = build_outcome(row)
 
