@@ -85,6 +85,18 @@ defmodule WeatherEdge.Markets do
     end
   end
 
+  def price_history(cluster_id, outcome_label, opts \\ []) do
+    hours = Keyword.get(opts, :hours, 48)
+    since = DateTime.utc_now() |> DateTime.add(-hours * 3600, :second)
+
+    MarketSnapshot
+    |> where([ms], ms.market_cluster_id == ^cluster_id and ms.outcome_label == ^outcome_label)
+    |> where([ms], ms.snapshot_at >= ^since)
+    |> order_by([ms], asc: ms.snapshot_at)
+    |> select([ms], %{time: ms.snapshot_at, yes_price: ms.yes_price})
+    |> Repo.all()
+  end
+
   def mark_resolved(market_cluster_id, resolution_temp) do
     case Repo.get(MarketCluster, market_cluster_id) do
       nil ->

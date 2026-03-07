@@ -30,6 +30,30 @@ defmodule WeatherEdge.Signals.Queries do
   end
 
   @doc """
+  Returns edge history for a specific signal combination over the last N hours.
+  Returns list of %{time, edge, model_prob, market_price}.
+  """
+  def edge_history(station_code, cluster_id, outcome_label, opts \\ []) do
+    hours = Keyword.get(opts, :hours, 24)
+    since = DateTime.utc_now() |> DateTime.add(-hours * 3600, :second)
+
+    from(s in Signal,
+      where: s.station_code == ^station_code,
+      where: s.market_cluster_id == ^cluster_id,
+      where: s.outcome_label == ^outcome_label,
+      where: s.computed_at >= ^since,
+      order_by: [asc: s.computed_at],
+      select: %{
+        time: s.computed_at,
+        edge: s.edge,
+        model_prob: s.model_probability,
+        market_price: s.market_price
+      }
+    )
+    |> Repo.all()
+  end
+
+  @doc """
   Returns the count of filtered signals (same filters, no limit/offset).
   """
   def count_filtered_signals(filters) do
