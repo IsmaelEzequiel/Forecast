@@ -77,6 +77,8 @@ defmodule WeatherEdge.Signals.Queries do
       where: s.id in subquery(latest_ids),
       where: mc.resolved == false,
       where: mc.target_date >= ^Date.utc_today(),
+      # Only show fresh signals — stale ones from bad data or closed markets age out
+      where: s.computed_at >= ^DateTime.add(DateTime.utc_now(), -2 * 3600, :second),
       select: %{
         id: s.id,
         computed_at: s.computed_at,

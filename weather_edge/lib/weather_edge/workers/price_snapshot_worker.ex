@@ -55,9 +55,22 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     outcomes = cluster.outcomes || []
 
-    Enum.each(outcomes, fn outcome ->
-      snapshot_outcome(cluster, outcome, now)
-    end)
+    # Snapshot each outcome and collect updated prices
+    updated_outcomes =
+      Enum.map(outcomes, fn outcome ->
+        {yes_price, no_price} = snapshot_outcome(cluster, outcome, now)
+        outcome
+        |> Map.put("yes_price", yes_price)
+        |> Map.put("no_price", no_price)
+      end)
+
+    # Update cluster with fresh prices so the detector uses current data
+    cluster
+    |> Ecto.Changeset.change(%{outcomes: updated_outcomes})
+    |> Repo.update()
+
+    # Detect if market is resolved (any outcome at 100% or all at 0)
+    maybe_auto_resolve(cluster, updated_outcomes)
   rescue
     e ->
       Logger.error(
@@ -65,12 +78,16 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
       )
   end
 
+  # Returns {yes_price, no_price} for the outcome (keeping old values on failure)
   defp snapshot_outcome(cluster, outcome, now) do
     label = outcome["outcome_label"]
     token_ids = outcome["clob_token_ids"] |> List.wrap() |> List.first()
+    old_yes = outcome["yes_price"]
+    old_no = outcome["no_price"]
 
     if is_nil(token_ids) do
       Logger.warning("PriceSnapshotWorker: No token ID for outcome #{label} in cluster #{cluster.id}")
+      {old_yes, old_no}
     else
       yes_price = fetch_price(token_ids, "buy")
       no_price = fetch_price(token_ids, "sell")
@@ -92,12 +109,43 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
             "PriceSnapshotWorker: Failed to insert snapshot for #{label}: #{inspect(changeset.errors)}"
           )
       end
+
+      {yes_price || old_yes, no_price || old_no}
     end
   rescue
     e ->
       Logger.error(
         "PriceSnapshotWorker: Error fetching prices for outcome #{outcome["outcome_label"]}: #{Exception.message(e)}"
       )
+      {outcome["yes_price"], outcome["no_price"]}
+  end
+
+  # If any outcome has YES price >= 0.99 (or all are nil/0), Polymarket has resolved this market.
+  # Mark it resolved so the mispricing worker stops generating signals for it.
+  defp maybe_auto_resolve(cluster, outcomes) do
+    has_winner =
+      Enum.any?(outcomes, fn o ->
+        yes = o["yes_price"]
+        is_number(yes) and yes >= 0.99
+      end)
+
+    all_dead =
+      Enum.all?(outcomes, fn o ->
+        yes = o["yes_price"]
+        is_nil(yes) or yes == 0.0
+      end)
+
+    if has_winner or all_dead do
+      unless cluster.resolved do
+        Logger.info(
+          "PriceSnapshotWorker: Auto-resolving cluster #{cluster.id} (#{cluster.station_code}) — market closed on Polymarket"
+        )
+
+        cluster
+        |> Ecto.Changeset.change(%{resolved: true})
+        |> Repo.update()
+      end
+    end
   end
 
   defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
