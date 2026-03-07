@@ -29,6 +29,52 @@ defmodule WeatherEdge.Forecasts.WundergroundClient do
     end
   end
 
+  @doc """
+  Fetches the Weather Underground forecast max temperature for a station on a given date.
+  Scrapes the forecast page for the predicted high.
+
+  Returns `{:ok, max_temp_celsius}` or `{:error, reason}`.
+  """
+  def get_forecast_max_temp(station_code, %Date{} = date) do
+    url = forecast_url(station_code)
+
+    case Req.get(url, receive_timeout: 15_000, retry: :transient, max_retries: 1) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        parse_forecast_temp(body, date)
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:http_error, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp forecast_url(station_code) do
+    "https://www.wunderground.com/forecast/#{station_code}"
+  end
+
+  defp parse_forecast_temp(html, target_date) when is_binary(html) do
+    # WU embeds forecast JSON with daily highs in the page
+    # Look for the target date's high temperature
+    date_str = Calendar.strftime(target_date, "%-m/%-d")
+
+    cond do
+      # Try embedded JSON forecast data with "high" temperature
+      match = Regex.run(~r/"#{Regex.escape(date_str)}"[^}]*?"high":\s*(\d+)/s, html) ->
+        {temp_f, _} = Integer.parse(Enum.at(match, 1))
+        {:ok, round((temp_f - 32) * 5 / 9)}
+
+      # Try looking for temperature values near the target date string
+      match = Regex.run(~r/#{Regex.escape(date_str)}[^0-9]*?(\d{2,3})\s*°/s, html) ->
+        {temp_f, _} = Integer.parse(Enum.at(match, 1))
+        {:ok, round((temp_f - 32) * 5 / 9)}
+
+      true ->
+        {:error, :forecast_not_found}
+    end
+  end
+
   defp history_url(station_code, date) do
     formatted = Calendar.strftime(date, "%Y-%m-%d")
 

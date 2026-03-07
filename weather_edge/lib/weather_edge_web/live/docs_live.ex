@@ -33,6 +33,12 @@ defmodule WeatherEdgeWeb.DocsLive do
           <li><a href="#confidence" class="hover:underline">Confidence Levels</a></li>
           <li><a href="#peak-status" class="hover:underline">Peak Status &amp; Timezone Strategy</a></li>
           <li><a href="#observed-temp" class="hover:underline">Observed Temperature Override</a></li>
+          <li><a href="#math-ensemble" class="hover:underline">Ensemble Model Weighting (Math)</a></li>
+          <li><a href="#math-gaussian" class="hover:underline">Gaussian Kernel Smoothing (Math)</a></li>
+          <li><a href="#math-probability" class="hover:underline">Probability Distribution Pipeline</a></li>
+          <li><a href="#math-kelly" class="hover:underline">Kelly Criterion Position Sizing</a></li>
+          <li><a href="#math-signals" class="hover:underline">Signal Detection Thresholds</a></li>
+          <li><a href="#forecast-models" class="hover:underline">Forecast Models</a></li>
           <li><a href="#workers" class="hover:underline">Background Workers</a></li>
           <li><a href="#architecture" class="hover:underline">Architecture Overview</a></li>
         </ol>
@@ -610,9 +616,183 @@ defmodule WeatherEdgeWeb.DocsLive do
         </dl>
       </section>
 
-      <%!-- 11. WORKERS --%>
+      <%!-- 11. ENSEMBLE MODEL WEIGHTING --%>
+      <section id="math-ensemble" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">11. Ensemble Model Weighting (Math)</h2>
+        <p class="text-sm text-zinc-500">
+          When enough historical accuracy data exists (&ge; 3 resolved events for a station), models are
+          weighted by inverse Mean Absolute Error (MAE). Models with lower historical error get more influence.
+        </p>
+        <div class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-4 text-sm font-mono space-y-2">
+          <p class="text-zinc-700 dark:text-zinc-300">For each model <em>m</em>:</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">inverse_mae(m) = 1 / max(MAE(m), 0.5)</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">weight(m) = inverse_mae(m) / &sum; inverse_mae(all models)</p>
+          <p class="text-zinc-500 dark:text-zinc-400 text-xs mt-2">
+            The floor of 0.5 prevents a model with near-zero MAE from dominating.
+            When &lt; 3 events exist, all models get equal weight (1/N).
+          </p>
+        </div>
+        <p class="text-sm text-zinc-500">
+          <strong>Example:</strong> If GFS has MAE=1.2 and ECMWF has MAE=0.8, then
+          inverse_mae(GFS) = 1/1.2 = 0.833, inverse_mae(ECMWF) = 1/0.8 = 1.25.
+          Total = 2.083. Weight(GFS) = 40%, Weight(ECMWF) = 60%.
+        </p>
+      </section>
+
+      <%!-- 12. GAUSSIAN KERNEL SMOOTHING --%>
+      <section id="math-gaussian" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">12. Gaussian Kernel Smoothing (Math)</h2>
+        <p class="text-sm text-zinc-500">
+          Raw model forecasts produce a sparse distribution (e.g., 5 models = 5 point estimates).
+          Gaussian kernel smoothing spreads probability mass to neighboring temperatures,
+          producing a realistic bell-curve-like distribution.
+        </p>
+        <div class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-4 text-sm font-mono space-y-2">
+          <p class="text-zinc-700 dark:text-zinc-300">Kernel weight:</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">K(x, &mu;, &sigma;) = exp(-(x - &mu;)&sup2; / (2&sigma;&sup2;))</p>
+          <p class="text-zinc-700 dark:text-zinc-300 mt-2">Smoothed probability at temperature t:</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">P'(t) = &sum;<sub>s</sub> K(s, t, &sigma;) &middot; P(s) / Z</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4 text-xs">where Z = normalization constant so &sum; P' = 1.0</p>
+        </div>
+        <div class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-4 text-sm space-y-1">
+          <p class="text-zinc-700 dark:text-zinc-300 font-semibold">Sigma by forecast horizon:</p>
+          <ul class="list-disc ml-4 text-zinc-500 dark:text-zinc-400 space-y-1">
+            <li>&le; 1 day out: &sigma; = 0.8 (tight, high confidence)</li>
+            <li>2 days out: &sigma; = 1.2 (moderate spread)</li>
+            <li>3+ days out: &sigma; = 1.8 (wide, lower confidence)</li>
+          </ul>
+          <p class="text-zinc-500 dark:text-zinc-400 text-xs mt-2">
+            Lower &sigma; = probability stays concentrated near forecast temps.
+            Higher &sigma; = probability spreads to adjacent temps, reflecting forecast uncertainty.
+          </p>
+        </div>
+      </section>
+
+      <%!-- 13. PROBABILITY DISTRIBUTION PIPELINE --%>
+      <section id="math-probability" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">13. Probability Distribution Pipeline</h2>
+        <p class="text-sm text-zinc-500">
+          The full pipeline from raw forecasts to final probabilities:
+        </p>
+        <ol class="list-decimal list-inside text-sm text-zinc-500 dark:text-zinc-400 space-y-2 ml-2">
+          <li><strong class="text-zinc-700 dark:text-zinc-300">Fetch snapshots</strong> &mdash; Latest forecast per model for station + target date</li>
+          <li><strong class="text-zinc-700 dark:text-zinc-300">Compute model weights</strong> &mdash; Inverse MAE weighting (or equal if &lt; 3 events)</li>
+          <li><strong class="text-zinc-700 dark:text-zinc-300">Build weighted empirical</strong> &mdash; Each model's temp gets its weight as probability mass</li>
+          <li><strong class="text-zinc-700 dark:text-zinc-300">Gaussian smoothing</strong> &mdash; Apply kernel with horizon-based &sigma;</li>
+          <li><strong class="text-zinc-700 dark:text-zinc-300">Tail collapse</strong> &mdash; Aggregate extremes into "X or below" and "Y or higher" buckets matching Polymarket outcomes</li>
+          <li><strong class="text-zinc-700 dark:text-zinc-300">Normalize</strong> &mdash; Ensure all probabilities sum to 1.0</li>
+          <li><strong class="text-zinc-700 dark:text-zinc-300">Observed override</strong> &mdash; For today's markets, if METAR observed high exists, deterministically resolve applicable outcomes to 0% or 100%</li>
+        </ol>
+      </section>
+
+      <%!-- 14. KELLY CRITERION --%>
+      <section id="math-kelly" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">14. Kelly Criterion Position Sizing</h2>
+        <p class="text-sm text-zinc-500">
+          Position size is dynamically adjusted based on edge strength using the Kelly criterion.
+          We use <strong>half-Kelly</strong> to reduce variance at the cost of slightly lower expected growth.
+        </p>
+        <div class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-4 text-sm font-mono space-y-2">
+          <p class="text-zinc-700 dark:text-zinc-300">Given:</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">p = model probability of winning</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">q = 1 - p (probability of losing)</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">b = (1 - price) / price (net odds)</p>
+          <p class="text-zinc-700 dark:text-zinc-300 mt-2">Full Kelly fraction:</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">f* = (p &middot; b - q) / b</p>
+          <p class="text-zinc-700 dark:text-zinc-300 mt-2">Half-Kelly (what we use):</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">f = f* &times; 0.5</p>
+          <p class="text-zinc-700 dark:text-zinc-300 mt-2">Final multiplier (clamped):</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">multiplier = clamp(f, 0.25, 1.50)</p>
+          <p class="text-zinc-700 dark:text-zinc-300 ml-4">buy_amount = base_amount &times; multiplier</p>
+        </div>
+        <p class="text-sm text-zinc-500">
+          <strong>Example:</strong> Model prob = 70%, market price = $0.45.
+          b = 0.55/0.45 = 1.222. f* = (0.70 &times; 1.222 - 0.30) / 1.222 = 0.455.
+          Half-Kelly = 0.228. Clamped to 0.25 (minimum). Buy amount = base &times; 0.25.
+        </p>
+        <p class="text-sm text-zinc-500">
+          <strong>Why half-Kelly?</strong> Full Kelly maximizes long-run growth but has extreme variance.
+          Half-Kelly achieves ~75% of the growth rate with ~50% of the drawdowns.
+          The 0.25-1.50 clamps ensure we never bet too little (skip edge) or too much (blow up).
+        </p>
+      </section>
+
+      <%!-- 15. SIGNAL DETECTION THRESHOLDS --%>
+      <section id="math-signals" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">15. Signal Detection Thresholds</h2>
+        <p class="text-sm text-zinc-500">
+          The mispricing detector compares model probability to market price and classifies the edge:
+        </p>
+        <div class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-4 text-sm font-mono space-y-2">
+          <p class="text-zinc-700 dark:text-zinc-300">edge = model_probability - market_price</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm border-collapse mt-2">
+            <thead>
+              <tr class="border-b border-zinc-200 dark:border-zinc-700">
+                <th class="text-left py-1 px-2 text-zinc-700 dark:text-zinc-300">Alert Level</th>
+                <th class="text-left py-1 px-2 text-zinc-700 dark:text-zinc-300">Edge Threshold</th>
+                <th class="text-left py-1 px-2 text-zinc-700 dark:text-zinc-300">Direction</th>
+              </tr>
+            </thead>
+            <tbody class="text-zinc-500 dark:text-zinc-400">
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold text-green-700">Safe NO</td><td class="py-1 px-2">edge &le; -15%</td><td class="py-1 px-2">Model &lt;&lt; Market (overpriced)</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold text-yellow-700">Opportunity</td><td class="py-1 px-2">edge &ge; 8%</td><td class="py-1 px-2">Model &gt; Market</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold text-orange-700">Strong</td><td class="py-1 px-2">edge &ge; 15%</td><td class="py-1 px-2">Model &gt;&gt; Market</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold text-red-700">Extreme</td><td class="py-1 px-2">edge &ge; 25%</td><td class="py-1 px-2">Model &gt;&gt;&gt; Market</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-sm text-zinc-500 mt-2">
+          <strong>Signal deduplication:</strong> To prevent spam, signals are deduplicated per market cluster.
+          If a signal with the same outcome + side (BUY YES/NO) was generated in the last 1 hour,
+          it is skipped.
+        </p>
+        <p class="text-sm text-zinc-500">
+          <strong>Auto-buy gating:</strong> Auto-buy only executes when: (1) station has auto-buy enabled,
+          (2) signal confidence is Confirmed or High (post-peak/near-peak for today's markets),
+          (3) market price &le; station's max buy price, (4) edge meets the threshold.
+        </p>
+      </section>
+
+      <%!-- 16. FORECAST MODELS --%>
+      <section id="forecast-models" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">16. Forecast Models</h2>
+        <p class="text-sm text-zinc-500">
+          The ensemble combines forecasts from 8 independent weather models:
+        </p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm border-collapse mt-2">
+            <thead>
+              <tr class="border-b border-zinc-200 dark:border-zinc-700">
+                <th class="text-left py-1 px-2 text-zinc-700 dark:text-zinc-300">Model</th>
+                <th class="text-left py-1 px-2 text-zinc-700 dark:text-zinc-300">Source</th>
+                <th class="text-left py-1 px-2 text-zinc-700 dark:text-zinc-300">Provider</th>
+                <th class="text-left py-1 px-2 text-zinc-700 dark:text-zinc-300">Strength</th>
+              </tr>
+            </thead>
+            <tbody class="text-zinc-500 dark:text-zinc-400">
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold">GFS</td><td class="py-1 px-2">Open-Meteo</td><td class="py-1 px-2">NOAA (US)</td><td class="py-1 px-2">Best for North America</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold">ECMWF IFS</td><td class="py-1 px-2">Open-Meteo</td><td class="py-1 px-2">ECMWF (EU)</td><td class="py-1 px-2">Best overall global model</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold">ICON</td><td class="py-1 px-2">Open-Meteo</td><td class="py-1 px-2">DWD (Germany)</td><td class="py-1 px-2">Strong for Europe</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold">JMA</td><td class="py-1 px-2">Open-Meteo</td><td class="py-1 px-2">JMA (Japan)</td><td class="py-1 px-2">Strong for Asia-Pacific</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold">GEM</td><td class="py-1 px-2">Open-Meteo</td><td class="py-1 px-2">ECCC (Canada)</td><td class="py-1 px-2">Strong for North America</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold">UKMO</td><td class="py-1 px-2">Open-Meteo</td><td class="py-1 px-2">Met Office (UK)</td><td class="py-1 px-2">Strong for UK/Europe</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold">ARPEGE</td><td class="py-1 px-2">Open-Meteo</td><td class="py-1 px-2">M&eacute;t&eacute;o-France</td><td class="py-1 px-2">Strong for Europe/Africa</td></tr>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800"><td class="py-1 px-2 font-semibold">Wunderground</td><td class="py-1 px-2">Web scrape</td><td class="py-1 px-2">Weather Underground</td><td class="py-1 px-2">Blended model, good for US cities</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-sm text-zinc-500 mt-2">
+          All Open-Meteo models provide hourly <code class="text-xs bg-zinc-100 dark:bg-zinc-800 px-1 rounded">temperature_2m</code> data. The daily max is extracted
+          by filtering hours matching the target date and taking the maximum value.
+          Weather Underground forecast is scraped from their forecast page and converted from &deg;F to &deg;C.
+        </p>
+      </section>
+
+      <%!-- 17. WORKERS --%>
       <section id="workers" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">11. Background Workers</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">17. Background Workers</h2>
         <p class="text-sm text-zinc-500">
           Oban-powered jobs that run automatically:
         </p>
@@ -620,8 +800,8 @@ defmodule WeatherEdgeWeb.DocsLive do
           <div>
             <dt class="font-semibold text-zinc-700">ForecastRefreshWorker</dt>
             <dd class="text-zinc-500 ml-4">
-              Fetches multi-model weather forecasts from Open-Meteo every 15 minutes.
-              Sources: GFS, ECMWF, ICON, GEM, JMA, and others.
+              Fetches multi-model weather forecasts every 15 minutes.
+              Sources: GFS, ECMWF IFS, ICON, GEM, JMA, UKMO, ARPEGE (via Open-Meteo) + Weather Underground (web scrape).
               Stores snapshots in <code class="text-xs bg-zinc-100 px-1 rounded">forecast_snapshots</code>.
             </dd>
           </div>
@@ -670,9 +850,9 @@ defmodule WeatherEdgeWeb.DocsLive do
         </dl>
       </section>
 
-      <%!-- 12. ARCHITECTURE --%>
+      <%!-- 18. ARCHITECTURE --%>
       <section id="architecture" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">12. Architecture Overview</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">18. Architecture Overview</h2>
         <div class="text-sm text-zinc-500 space-y-3">
           <p>
             <strong class="text-zinc-700">Phoenix LiveView App</strong> &mdash;

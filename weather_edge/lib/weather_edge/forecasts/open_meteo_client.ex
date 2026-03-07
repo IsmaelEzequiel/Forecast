@@ -4,7 +4,7 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
   Fetches hourly temperature forecasts from multiple weather models.
   """
 
-  @models ["gfs", "ecmwf_ifs", "icon_global", "jma", "gem_global"]
+  @models ["gfs", "ecmwf_ifs", "icon_global", "jma", "gem_global", "ukmo", "arpege"]
 
   @spec fetch_all_models(float(), float(), pos_integer()) ::
           {:ok, map()} | {:error, term()}
@@ -14,7 +14,7 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
       |> Task.async_stream(
         fn model -> {model, fetch_single_model(latitude, longitude, model, forecast_days)} end,
         timeout: 30_000,
-        max_concurrency: 3
+        max_concurrency: 4
       )
       |> Enum.reduce(%{}, fn
         {:ok, {model, {:ok, body}}}, acc ->
@@ -56,6 +56,8 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
         "icon_global" -> {"/dwd-icon", []}
         "jma" -> {"/jma", []}
         "gem_global" -> {"/gem", []}
+        "ukmo" -> {"/ukmo", []}
+        "arpege" -> {"/meteofrance", []}
         _ -> {"/forecast", []}
       end
 

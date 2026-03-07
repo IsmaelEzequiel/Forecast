@@ -25,16 +25,16 @@ defmodule WeatherEdgeWeb.Components.HeaderComponent do
           + Add Station
         </button>
 
+        <.link navigate="/" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+          Dashboard
+        </.link>
+
         <.link navigate="/analytics" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
           Analytics
         </.link>
 
         <.link navigate="/docs" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
           Docs
-        </.link>
-
-        <.link navigate="/settings" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
-          Settings
         </.link>
 
         <button

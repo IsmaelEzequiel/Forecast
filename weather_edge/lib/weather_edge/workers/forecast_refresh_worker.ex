@@ -10,6 +10,7 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
 
   alias WeatherEdge.Forecasts
   alias WeatherEdge.Forecasts.OpenMeteoClient
+  alias WeatherEdge.Forecasts.WundergroundClient
   alias WeatherEdge.Markets
   alias WeatherEdge.Stations
   alias WeatherEdge.PubSubHelper
@@ -54,6 +55,9 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
               fetched_at: now
             })
           end)
+
+          # Weather Underground forecast
+          fetch_wu_forecast(station, target_date, now)
         end)
 
         PubSubHelper.broadcast(
@@ -67,6 +71,22 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
 
       {:error, reason} ->
         Logger.error("ForecastRefresh: Failed for #{station.code}: #{inspect(reason)}")
+    end
+  end
+
+  defp fetch_wu_forecast(station, target_date, now) do
+    case WundergroundClient.get_forecast_max_temp(station.code, target_date) do
+      {:ok, max_temp_c} ->
+        Forecasts.store_snapshot(%{
+          station_code: station.code,
+          target_date: target_date,
+          model: "wunderground",
+          max_temp_c: max_temp_c,
+          fetched_at: now
+        })
+
+      {:error, reason} ->
+        Logger.debug("ForecastRefresh: WU forecast failed for #{station.code}: #{inspect(reason)}")
     end
   end
 end
