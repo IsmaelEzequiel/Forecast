@@ -108,42 +108,29 @@ defmodule WeatherEdge.Signals.Detector do
   # for outcomes that are already determined by observation.
   defp observed_override(_label, nil, _cluster), do: :use_model
 
+  # Only use observed data for NEGATIVE resolution (eliminating impossible outcomes).
+  # Never use it for positive resolution — METAR readings can be ±1°F off, and
+  # setting 100% probability creates catastrophically wrong signals.
   defp observed_override(label, observed_high_c, _cluster) when is_number(observed_high_c) do
     case parse_outcome_temp(label) do
-      {:or_higher, temp, unit} ->
-        observed = convert_temp(observed_high_c, unit)
-        # "X or higher" is already YES if observed >= X
-        if observed >= temp, do: {:resolved, 1.0}, else: :use_model
-
       {:or_below, temp, unit} ->
         observed = convert_temp(observed_high_c, unit)
-        # "X or below" — can only be YES if final high <= X.
-        # If observed already > X, it's resolved NO.
+        # "X or below" is impossible if observed already > X
         if observed > temp, do: {:resolved, 0.0}, else: :use_model
 
       {:exact, temp, unit} ->
         observed = convert_temp(observed_high_c, unit)
-        cond do
-          # Observed is exactly this temp — likely the winning outcome
-          observed == temp -> {:resolved, 1.0}
-          # Observed already exceeded — can't be this temp anymore
-          observed > temp -> {:resolved, 0.0}
-          # Observed below — temp could still rise to this value
-          true -> :use_model
-        end
+        # "exactly X" is impossible if observed already exceeded it
+        if observed > temp, do: {:resolved, 0.0}, else: :use_model
 
-      {:range, low, high, unit} ->
+      {:range, _low, high, unit} ->
         observed = convert_temp(observed_high_c, unit)
-        cond do
-          # Observed is within the range — this is the likely winner
-          observed >= low and observed <= high -> {:resolved, 1.0}
-          # Observed already above the range — high exceeded it
-          observed > high -> {:resolved, 0.0}
-          # Observed below range — temp could still rise into it
-          true -> :use_model
-        end
+        # "X-Y range" is impossible if observed already exceeded the range
+        if observed > high, do: {:resolved, 0.0}, else: :use_model
 
-      :unknown ->
+      # "X or higher" can never be ruled out by current observed — temp may still rise
+      # (and post-peak it's already true, but the model handles that via probability)
+      _ ->
         :use_model
     end
   end
