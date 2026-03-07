@@ -58,6 +58,7 @@ defmodule WeatherEdge.MixProject do
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
       {:oban, "~> 2.17"},
+      {:oban_live_dashboard, "~> 0.2"},
       {:req, "~> 0.5"},
       {:timex, "~> 3.7"},
       {:ex_secp256k1, "~> 0.7"},

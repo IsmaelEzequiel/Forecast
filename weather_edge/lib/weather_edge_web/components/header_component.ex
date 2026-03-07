@@ -37,6 +37,10 @@ defmodule WeatherEdgeWeb.Components.HeaderComponent do
           Docs
         </.link>
 
+        <.link href="/admin/dashboard/oban" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+          Admin
+        </.link>
+
         <button
           id="dark-mode-toggle"
           phx-hook="DarkMode"
