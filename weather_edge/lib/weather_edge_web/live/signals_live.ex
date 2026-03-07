@@ -73,7 +73,15 @@ defmodule WeatherEdgeWeb.SignalsLive do
       <div class="sticky top-0 z-30 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 space-y-3">
         <div class="flex items-center justify-between">
           <.filter_bar filters={@filters} station_codes={@station_codes} total_count={@total_count} signals_count={length(@signals)} />
-          <.view_mode_toggle view_mode={@view_mode} />
+          <div class="flex items-center gap-2">
+            <button
+              phx-click="export_signals"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+            >
+              Export JSON
+            </button>
+            <.view_mode_toggle view_mode={@view_mode} />
+          </div>
         </div>
       </div>
 
@@ -1535,6 +1543,14 @@ defmodule WeatherEdgeWeb.SignalsLive do
      )}
   end
 
+  def handle_event("export_signals", _params, socket) do
+    signals = socket.assigns.signals
+    export = build_export(signals)
+    json = Jason.encode!(export, pretty: true)
+
+    {:noreply, push_event(socket, "download_json", %{data: json, filename: "signals_export_#{Date.utc_today()}.json"})}
+  end
+
   def handle_event("toggle_performance", _params, socket) do
     expanded = !socket.assigns.performance_expanded
 
@@ -2094,4 +2110,142 @@ defmodule WeatherEdgeWeb.SignalsLive do
   defp result_class("lost"), do: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
   defp result_class("sold"), do: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
   defp result_class(_), do: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+
+  # --- Export ---
+
+  defp build_export(signals) do
+    # Group signals by station+cluster to avoid redundant lookups
+    grouped = Enum.group_by(signals, fn row -> {row.signal.station_code, row.cluster.id} end)
+
+    entries =
+      Enum.flat_map(grouped, fn {{station_code, cluster_id}, rows} ->
+        cluster = hd(rows).cluster
+        station = hd(rows).station
+        target_date = cluster.target_date
+
+        # Forecast model snapshots
+        forecasts = export_forecasts(station_code, target_date)
+
+        # METAR observed temperature
+        metar = export_metar(station_code)
+
+        # Peak status
+        peak = export_peak_status(station_code)
+
+        # Distribution from engine
+        distribution = export_distribution(station_code, target_date)
+
+        Enum.map(rows, fn row ->
+          %{
+            signal: %{
+              id: row.signal.id,
+              computed_at: to_string(row.signal.computed_at),
+              station_code: row.signal.station_code,
+              outcome_label: row.signal.outcome_label,
+              model_probability: row.signal.model_probability,
+              market_price: row.signal.market_price,
+              edge: row.signal.edge,
+              edge_pct: if(row.signal.edge, do: Float.round(row.signal.edge * 100, 2)),
+              recommended_side: row.signal.recommended_side,
+              alert_level: row.signal.alert_level,
+              confidence: row.signal.confidence
+            },
+            cluster: %{
+              id: cluster_id,
+              title: cluster.title,
+              target_date: to_string(target_date),
+              event_slug: cluster.event_slug,
+              polymarket_url: "https://polymarket.com/event/#{cluster.event_slug}",
+              outcomes:
+                Enum.map(cluster.outcomes || [], fn o ->
+                  %{
+                    label: o["outcome_label"],
+                    yes_price: o["yes_price"],
+                    no_price: o["no_price"],
+                    volume: o["volume"],
+                    liquidity: o["liquidity"]
+                  }
+                end)
+            },
+            station: %{
+              code: station.code,
+              city: station.city
+            },
+            position: row.position,
+            diagnostics: %{
+              forecasts: forecasts,
+              metar: metar,
+              peak_status: peak,
+              distribution: distribution
+            }
+          }
+        end)
+      end)
+
+    %{
+      exported_at: DateTime.utc_now() |> to_string(),
+      signal_count: length(entries),
+      signals: entries
+    }
+  end
+
+  defp export_forecasts(_station_code, nil), do: %{error: "no target date"}
+
+  defp export_forecasts(station_code, target_date) do
+    snapshots = WeatherEdge.Forecasts.latest_snapshots(station_code, target_date)
+
+    Enum.map(snapshots, fn s ->
+      %{
+        model: s.model,
+        max_temp_c: s.max_temp_c,
+        fetched_at: to_string(s.fetched_at)
+      }
+    end)
+  end
+
+  defp export_metar(station_code) do
+    case WeatherEdge.Forecasts.MetarClient.get_todays_high(station_code) do
+      {:ok, temp_c} -> %{observed_high_c: temp_c}
+      {:error, reason} -> %{error: inspect(reason)}
+    end
+  end
+
+  defp export_peak_status(station_code) do
+    case Stations.get_by_code(station_code) do
+      {:ok, station} ->
+        {status, hours} = WeatherEdge.Timezone.PeakCalculator.peak_status(station.longitude)
+        confidence = WeatherEdge.Timezone.PeakCalculator.confidence(status)
+
+        %{
+          status: to_string(status),
+          hours_to_peak: hours,
+          confidence: to_string(confidence)
+        }
+
+      _ ->
+        %{error: "station not found"}
+    end
+  end
+
+  defp export_distribution(_station_code, nil), do: %{error: "no target date"}
+
+  defp export_distribution(station_code, target_date) do
+    case WeatherEdge.Probability.Engine.compute_distribution(station_code, target_date) do
+      {:ok, dist} ->
+        probs =
+          dist.probabilities
+          |> Enum.sort_by(fn {label, _} -> label end)
+          |> Enum.map(fn {label, prob} ->
+            %{label: label, probability: Float.round(prob, 4)}
+          end)
+
+        %{
+          labels: Enum.map(probs, & &1.label),
+          probabilities: probs
+        }
+
+      {:error, reason} ->
+        %{error: inspect(reason)}
+    end
+  end
 end
