@@ -6,6 +6,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   alias WeatherEdge.Signals.DetailData
   alias WeatherEdge.Signals.GroupedView
   alias WeatherEdge.Signals.HeatmapData
+  alias WeatherEdge.Signals.Performance
   alias WeatherEdge.Stations
   alias WeatherEdge.Markets
   alias WeatherEdge.Trading.OrderManager
@@ -55,7 +56,9 @@ defmodule WeatherEdgeWeb.SignalsLive do
        station_codes: station_codes,
        offset: 0,
        buying: false,
-       buy_progress: nil
+       buy_progress: nil,
+       performance_expanded: false,
+       performance_data: nil
      )}
   end
 
@@ -89,6 +92,11 @@ defmodule WeatherEdgeWeb.SignalsLive do
         <% end %>
       </div>
 
+      <.performance_tracker
+        performance_expanded={@performance_expanded}
+        performance_data={@performance_data}
+      />
+
       <.quick_actions_bar
         selected={@selected}
         signals={@signals}
@@ -109,6 +117,164 @@ defmodule WeatherEdgeWeb.SignalsLive do
         phx-click="close_detail"
         class="fixed inset-0 z-40 bg-black/20"
       />
+    </div>
+    """
+  end
+
+  defp performance_tracker(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 mb-16">
+      <button
+        phx-click="toggle_performance"
+        class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+      >
+        <span>Performance Tracker</span>
+        <span class="text-xs text-zinc-400"><%= if @performance_expanded, do: "▲", else: "▼" %></span>
+      </button>
+
+      <div :if={@performance_expanded && @performance_data} class="border-t border-zinc-200 dark:border-zinc-700 p-4 space-y-6">
+        <.performance_summary stats={@performance_data} />
+        <.accuracy_by_level_table levels={@performance_data.accuracy_by_level} />
+        <.accuracy_by_station_table stations={@performance_data.accuracy_by_station} />
+        <.signal_history_table history={@performance_data.signal_history} />
+      </div>
+
+      <div :if={@performance_expanded && !@performance_data} class="border-t border-zinc-200 dark:border-zinc-700 p-4">
+        <p class="text-sm text-zinc-400">Loading performance data...</p>
+      </div>
+    </div>
+    """
+  end
+
+  defp performance_summary(assigns) do
+    ~H"""
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="text-center">
+        <div class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+          <%= format_pct(@stats.accuracy) %>
+        </div>
+        <div class="text-xs text-zinc-500 dark:text-zinc-400">Accuracy</div>
+      </div>
+      <div class="text-center">
+        <div class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+          <%= format_edge(@stats.avg_edge) %>
+        </div>
+        <div class="text-xs text-zinc-500 dark:text-zinc-400">Avg Edge</div>
+      </div>
+      <div class="text-center">
+        <div class={"text-2xl font-bold #{pnl_color(@stats.total_pnl)}"}>
+          $<%= format_price(@stats.total_pnl) %>
+        </div>
+        <div class="text-xs text-zinc-500 dark:text-zinc-400">Total P&L</div>
+      </div>
+      <div class="text-center">
+        <div class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+          <%= @stats.total_signals %>
+        </div>
+        <div class="text-xs text-zinc-500 dark:text-zinc-400">Signals Tracked</div>
+      </div>
+    </div>
+    """
+  end
+
+  defp accuracy_by_level_table(assigns) do
+    levels = assigns.levels |> Enum.sort_by(fn {_k, v} -> -v.count end)
+    assigns = assign(assigns, :sorted_levels, levels)
+
+    ~H"""
+    <div>
+      <h4 class="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">By Alert Level</h4>
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
+            <th class="px-3 py-1.5">Level</th>
+            <th class="px-3 py-1.5">Count</th>
+            <th class="px-3 py-1.5">Accuracy</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={{level, data} <- @sorted_levels} class="border-b border-zinc-100 dark:border-zinc-800">
+            <td class="px-3 py-1.5">
+              <span class={"inline-block px-2 py-0.5 rounded text-xs font-medium #{alert_class(level)}"}>
+                <%= format_alert(level) %>
+              </span>
+            </td>
+            <td class="px-3 py-1.5 text-zinc-700 dark:text-zinc-300"><%= data.count %></td>
+            <td class="px-3 py-1.5 font-medium text-zinc-900 dark:text-zinc-100"><%= format_pct(data.accuracy) %></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp accuracy_by_station_table(assigns) do
+    stations = assigns.stations |> Enum.sort_by(fn {code, _} -> code end)
+    assigns = assign(assigns, :sorted_stations, stations)
+
+    ~H"""
+    <div>
+      <h4 class="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">By Station</h4>
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
+            <th class="px-3 py-1.5">Station</th>
+            <th class="px-3 py-1.5">Count</th>
+            <th class="px-3 py-1.5">Accuracy</th>
+            <th class="px-3 py-1.5">P&L</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={{code, data} <- @sorted_stations} class="border-b border-zinc-100 dark:border-zinc-800">
+            <td class="px-3 py-1.5 font-mono text-zinc-700 dark:text-zinc-300"><%= code %></td>
+            <td class="px-3 py-1.5 text-zinc-700 dark:text-zinc-300"><%= Map.get(data, :count, 0) %></td>
+            <td class="px-3 py-1.5 font-medium text-zinc-900 dark:text-zinc-100"><%= format_pct(Map.get(data, :accuracy, 0.0)) %></td>
+            <td class={"px-3 py-1.5 font-medium #{pnl_color(Map.get(data, :pnl, 0.0))}"}>$<%= format_price(Map.get(data, :pnl, 0.0)) %></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp signal_history_table(assigns) do
+    ~H"""
+    <div>
+      <h4 class="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Signal History</h4>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
+              <th class="px-3 py-1.5">Date</th>
+              <th class="px-3 py-1.5">Station</th>
+              <th class="px-3 py-1.5">Temp</th>
+              <th class="px-3 py-1.5">Edge</th>
+              <th class="px-3 py-1.5">Result</th>
+              <th class="px-3 py-1.5">P&L</th>
+              <th class="px-3 py-1.5">Correct</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={entry <- @history} class="border-b border-zinc-100 dark:border-zinc-800">
+              <td class="px-3 py-1.5 text-zinc-700 dark:text-zinc-300"><%= entry.date %></td>
+              <td class="px-3 py-1.5 font-mono text-zinc-700 dark:text-zinc-300"><%= entry.station %></td>
+              <td class="px-3 py-1.5 text-zinc-700 dark:text-zinc-300"><%= entry.temp || "-" %></td>
+              <td class={"px-3 py-1.5 font-medium #{edge_color(entry.edge)}"}><%= format_edge(entry.edge) %></td>
+              <td class="px-3 py-1.5">
+                <span class={"inline-block px-2 py-0.5 rounded text-xs font-medium #{result_class(entry.result)}"}>
+                  <%= String.upcase(entry.result) %>
+                </span>
+              </td>
+              <td class={"px-3 py-1.5 font-medium #{pnl_color(entry.pnl)}"}>
+                <%= if entry.pnl, do: "$#{format_price(entry.pnl)}", else: "-" %>
+              </td>
+              <td class="px-3 py-1.5">
+                <%= if entry.correct, do: "✓", else: "✗" %>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
     """
   end
@@ -1340,7 +1506,24 @@ defmodule WeatherEdgeWeb.SignalsLive do
      )}
   end
 
+  def handle_event("toggle_performance", _params, socket) do
+    expanded = !socket.assigns.performance_expanded
+
+    socket = assign(socket, :performance_expanded, expanded)
+
+    if expanded && socket.assigns.performance_data == nil do
+      send(self(), :load_performance)
+    end
+
+    {:noreply, socket}
+  end
+
   @impl true
+  def handle_info(:load_performance, socket) do
+    performance_data = Performance.compute_stats()
+    {:noreply, assign(socket, :performance_data, performance_data)}
+  end
+
   def handle_info({:load_detail, signal_id}, socket) do
     if socket.assigns.detail_signal_id == signal_id do
       detail_data = DetailData.fetch_signal_detail(signal_id)
@@ -1671,4 +1854,14 @@ defmodule WeatherEdgeWeb.SignalsLive do
   end
 
   defp format_trend_delta(_), do: ""
+
+  defp pnl_color(nil), do: "text-zinc-400"
+  defp pnl_color(val) when is_number(val) and val > 0, do: "text-green-600 dark:text-green-400"
+  defp pnl_color(val) when is_number(val) and val < 0, do: "text-red-600 dark:text-red-400"
+  defp pnl_color(_), do: "text-zinc-400"
+
+  defp result_class("won"), do: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+  defp result_class("lost"), do: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+  defp result_class("sold"), do: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+  defp result_class(_), do: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
 end
