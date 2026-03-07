@@ -85,19 +85,25 @@ defmodule WeatherEdge.Workers.MispricingWorker do
     :ok
   end
 
-  defp process_cluster(cluster, observed_highs, confidence, _peak_status) do
-    # For today's markets, pass the observed high so the detector can skip resolved outcomes
+  defp process_cluster(cluster, observed_highs, confidence, peak_status) do
+    # For today's markets, pass the observed high so the detector can skip resolved outcomes.
+    # Only pass observed_high_c when post-peak or night — the day's high is final.
+    # For near-peak, pass it with a flag so detector only uses it for definitive overrides
+    # (e.g., observed > outcome → resolved NO). For pre-peak, DON'T pass it at all —
+    # morning temps are just current readings, not daily highs.
     detector_opts =
       if cluster.target_date == Date.utc_today() do
-        base = [confidence: confidence]
+        base = [confidence: confidence, peak_status: peak_status]
 
-        case Map.get(observed_highs, cluster.station_code) do
-          nil -> base
-          temp -> [{:observed_high_c, temp} | base]
+        case {peak_status, Map.get(observed_highs, cluster.station_code)} do
+          {status, temp} when status in [:post_peak, :night] and not is_nil(temp) ->
+            [{:observed_high_c, temp} | base]
+
+          {_, _} ->
+            # Pre-peak or near-peak: don't pass observed temp to avoid false overrides
+            base
         end
       else
-        # Future dates: use forecast confidence but boost if post-peak
-        # (post-peak for tomorrow's market means models have overnight data)
         [confidence: confidence]
       end
 

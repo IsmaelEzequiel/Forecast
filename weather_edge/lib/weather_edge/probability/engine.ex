@@ -69,9 +69,12 @@ defmodule WeatherEdge.Probability.Engine do
 
   # Injects the observed METAR temperature into the empirical distribution.
   # Weight depends on peak status:
-  # - post_peak: observed IS the final answer, gets 60% of total weight
-  # - near_peak: temp may still rise, gets 40% weight
-  # - pre_peak: observation is just current temp, gets 20% weight
+  # - post_peak/night: observed IS the final answer, always inject with 60% weight
+  # - near_peak: inject with 40% weight, but only if observed >= model mean
+  #   (temp may still rise slightly, so a lower reading is not yet meaningful)
+  # - pre_peak: SKIP injection entirely. Morning temps are just current readings,
+  #   not daily highs. Injecting them creates false signals (e.g. 9°C at 77% when
+  #   forecast high is 13°C).
   defp inject_observed_temperature(empirical, station_code, unit) do
     with {:ok, observed_high_c} <- MetarClient.get_todays_high(station_code) do
       observed_temp = if unit == "F", do: round(observed_high_c * 9 / 5 + 32), else: round(observed_high_c)
@@ -80,23 +83,38 @@ defmodule WeatherEdge.Probability.Engine do
       station_longitude = get_station_longitude(station_code)
       {peak_status, _hours} = PeakCalculator.peak_status(station_longitude)
 
-      observed_weight =
-        case peak_status do
-          :post_peak -> 0.60
-          :night -> 0.60
-          :near_peak -> 0.40
-          :pre_peak -> 0.20
-        end
+      # Calculate model consensus (weighted mean temperature)
+      model_mean =
+        Enum.reduce(empirical, 0.0, fn {temp, prob}, acc -> acc + temp * prob end)
 
-      # Scale down existing model weights and inject observed
-      model_scale = 1.0 - observed_weight
-      scaled = Map.new(empirical, fn {temp, prob} -> {temp, prob * model_scale} end)
-      Map.update(scaled, observed_temp, observed_weight, &(&1 + observed_weight))
+      case peak_status do
+        status when status in [:post_peak, :night] ->
+          # Day is over — observed high is definitive, always inject
+          do_inject(empirical, observed_temp, 0.60)
+
+        :near_peak when observed_temp >= model_mean ->
+          # Near peak and observed already meets/exceeds forecast — inject
+          do_inject(empirical, observed_temp, 0.40)
+
+        _ ->
+          # Pre-peak or near-peak with observed below forecast — skip
+          Logger.debug(
+            "Engine: Skipping METAR injection for #{station_code} " <>
+              "(#{peak_status}, observed=#{observed_temp}, model_mean=#{round(model_mean)})"
+          )
+          empirical
+      end
     else
       _ ->
         Logger.debug("Engine: No METAR data for #{station_code}, using models only")
         empirical
     end
+  end
+
+  defp do_inject(empirical, observed_temp, weight) do
+    model_scale = 1.0 - weight
+    scaled = Map.new(empirical, fn {temp, prob} -> {temp, prob * model_scale} end)
+    Map.update(scaled, observed_temp, weight, &(&1 + weight))
   end
 
   defp get_station_longitude(station_code) do
