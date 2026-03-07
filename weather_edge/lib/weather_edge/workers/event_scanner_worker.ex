@@ -30,6 +30,7 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
     |> Enum.filter(& &1.monitoring_enabled)
     |> Enum.each(&scan_station/1)
 
+    WeatherEdge.JobTracker.record(:event_scanner)
     :ok
   end
 

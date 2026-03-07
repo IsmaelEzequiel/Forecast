@@ -305,12 +305,31 @@ defmodule WeatherEdgeWeb.DashboardLive do
     {:noreply, assign(socket, signal_limit: new_limit)}
   end
 
+  def handle_event("trigger_worker", %{"worker" => worker}, socket) do
+    worker_module = worker_module(worker)
+
+    if worker_module do
+      worker_module.new(%{}) |> Oban.insert()
+      {:noreply, put_flash(socket, :info, "#{worker_label(worker)} triggered")}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("scan_station", %{"code" => code}, socket) do
     %{station_code: code}
     |> WeatherEdge.Workers.EventScannerWorker.new(queue: :scanner)
     |> Oban.insert()
 
     {:noreply, put_flash(socket, :info, "Scanning events for #{code}...")}
+  end
+
+  def handle_event("refresh_forecasts", %{"code" => code}, socket) do
+    %{station_code: code}
+    |> WeatherEdge.Workers.ForecastRefreshWorker.new(queue: :forecasts)
+    |> Oban.insert()
+
+    {:noreply, put_flash(socket, :info, "Refreshing forecasts for #{code}...")}
   end
 
   def handle_event("delete_station", %{"code" => code}, socket) do
@@ -347,6 +366,19 @@ defmodule WeatherEdgeWeb.DashboardLive do
     ~H"""
     <div class="space-y-6">
       <.dashboard_header balance={@balance} wallet_address={@wallet_address} />
+
+      <!-- Worker Controls -->
+      <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+        <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-3">Workers</h3>
+        <div class="flex flex-wrap gap-2">
+          <.worker_button label="Scan Events" worker="event_scanner" last_run={job_ago(:event_scanner)} />
+          <.worker_button label="Refresh Forecasts" worker="forecast_refresh" last_run={job_ago(:forecast_refresh)} />
+          <.worker_button label="Detect Mispricings" worker="mispricing" last_run={job_ago(:mispricing)} />
+          <.worker_button label="Snapshot Prices" worker="price_snapshot" last_run={job_ago(:price_snapshot)} />
+          <.worker_button label="Monitor Positions" worker="position_monitor" last_run={job_ago(:position_monitor)} />
+          <.worker_button label="Resolve Events" worker="resolution" last_run={job_ago(:resolution)} />
+        </div>
+      </div>
 
       <.portfolio_summary positions={@all_positions} sidecar_positions={@sidecar_positions} balance={@balance} />
 
@@ -416,6 +448,41 @@ defmodule WeatherEdgeWeb.DashboardLive do
       :error -> map
     end
   end
+
+  attr :label, :string, required: true
+  attr :worker, :string, required: true
+  attr :last_run, :string, required: true
+
+  defp worker_button(assigns) do
+    ~H"""
+    <button
+      phx-click="trigger_worker"
+      phx-value-worker={@worker}
+      class="inline-flex items-center gap-2 rounded-md border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+    >
+      <span class="font-medium"><%= @label %></span>
+      <span class="text-zinc-400 dark:text-zinc-500"><%= @last_run %></span>
+    </button>
+    """
+  end
+
+  defp job_ago(key), do: WeatherEdge.JobTracker.time_ago(WeatherEdge.JobTracker.last_run(key))
+
+  defp worker_module("event_scanner"), do: WeatherEdge.Workers.EventScannerWorker
+  defp worker_module("forecast_refresh"), do: WeatherEdge.Workers.ForecastRefreshWorker
+  defp worker_module("mispricing"), do: WeatherEdge.Workers.MispricingWorker
+  defp worker_module("price_snapshot"), do: WeatherEdge.Workers.PriceSnapshotWorker
+  defp worker_module("position_monitor"), do: WeatherEdge.Workers.PositionMonitorWorker
+  defp worker_module("resolution"), do: WeatherEdge.Workers.ResolutionWorker
+  defp worker_module(_), do: nil
+
+  defp worker_label("event_scanner"), do: "Event Scanner"
+  defp worker_label("forecast_refresh"), do: "Forecast Refresh"
+  defp worker_label("mispricing"), do: "Mispricing Detector"
+  defp worker_label("price_snapshot"), do: "Price Snapshot"
+  defp worker_label("position_monitor"), do: "Position Monitor"
+  defp worker_label("resolution"), do: "Resolution"
+  defp worker_label(w), do: w
 
   defp changeset_error_message(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->

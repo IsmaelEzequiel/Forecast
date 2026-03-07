@@ -24,6 +24,7 @@ defmodule WeatherEdge.Workers.PositionMonitorWorker do
       monitor_position(position)
     end)
 
+    WeatherEdge.JobTracker.record(:position_monitor)
     :ok
   end
 

@@ -31,6 +31,7 @@ defmodule WeatherEdge.Workers.ResolutionWorker do
       resolve_cluster(cluster)
     end)
 
+    WeatherEdge.JobTracker.record(:resolution)
     :ok
   end
 

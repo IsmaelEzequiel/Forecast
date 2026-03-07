@@ -25,6 +25,7 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
       snapshot_cluster(cluster)
     end)
 
+    WeatherEdge.JobTracker.record(:price_snapshot)
     :ok
   end
 

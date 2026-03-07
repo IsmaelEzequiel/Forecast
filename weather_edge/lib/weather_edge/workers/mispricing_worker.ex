@@ -80,6 +80,7 @@ defmodule WeatherEdge.Workers.MispricingWorker do
       end
     end)
 
+    WeatherEdge.JobTracker.record(:mispricing)
     :ok
   end
 

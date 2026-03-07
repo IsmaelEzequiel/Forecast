@@ -113,12 +113,23 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
 
       <div :if={@clusters == []} class="flex items-center gap-3">
         <p class="text-sm text-zinc-400">No active events</p>
+      </div>
+
+      <!-- Per-station worker controls -->
+      <div class="flex items-center gap-2 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
         <button
           phx-click="scan_station"
           phx-value-code={@station.code}
-          class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline"
+          class="inline-flex items-center gap-1 rounded border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 px-2 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700"
         >
-          Scan Now
+          Scan Events
+        </button>
+        <button
+          phx-click="refresh_forecasts"
+          phx-value-code={@station.code}
+          class="inline-flex items-center gap-1 rounded border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 px-2 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+        >
+          Refresh Forecasts
         </button>
       </div>
     </div>

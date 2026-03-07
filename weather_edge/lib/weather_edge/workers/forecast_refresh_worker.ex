@@ -16,6 +16,20 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
   alias WeatherEdge.PubSubHelper
 
   @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"station_code" => code}}) do
+    case Stations.get_by_code(code) do
+      {:ok, station} ->
+        refresh_station(station)
+        WeatherEdge.StationHealth.refresh(station.code)
+        Logger.info("ForecastRefresh: Manual refresh for #{code}")
+
+      {:error, :not_found} ->
+        Logger.warning("ForecastRefresh: Station #{code} not found")
+    end
+
+    :ok
+  end
+
   def perform(%Oban.Job{}) do
     station_codes = Markets.station_codes_with_active_clusters()
 
@@ -32,6 +46,7 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
       end
     end)
 
+    WeatherEdge.JobTracker.record(:forecast_refresh)
     :ok
   end
 
