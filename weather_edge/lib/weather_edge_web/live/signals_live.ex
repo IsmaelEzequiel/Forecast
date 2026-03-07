@@ -112,6 +112,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
         detail_data={@detail_data}
         detail_loading={@detail_loading}
         detail_buy_amount={@detail_buy_amount}
+        buying={@buying}
       />
 
       <div
