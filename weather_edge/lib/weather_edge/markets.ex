@@ -65,8 +65,10 @@ defmodule WeatherEdge.Markets do
       |> select([ms], ms.yes_price)
       |> Repo.all()
 
-    case snapshots do
-      [_ | _] = prices when length(prices) >= 2 ->
+    prices = Enum.reject(snapshots, &is_nil/1)
+
+    case prices do
+      [_ | _] when length(prices) >= 2 ->
         oldest = List.first(prices)
         newest = List.last(prices)
         delta = newest - oldest

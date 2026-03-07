@@ -142,7 +142,9 @@ defmodule WeatherEdge.Signals.Queries do
   defp filter_min_edge(query, 0), do: query
 
   defp filter_min_edge(query, min_edge) do
-    where(query, [s, ...], s.edge >= ^min_edge)
+    # UI sends edge as percentage (e.g., 8 for 8%), DB stores as decimal (0.08)
+    min_edge_decimal = min_edge / 100
+    where(query, [s, ...], s.edge >= ^min_edge_decimal)
   end
 
   defp filter_side(query, "all"), do: query

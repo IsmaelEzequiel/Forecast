@@ -71,7 +71,9 @@ defmodule WeatherEdge.Signals.Performance do
 
   defp load_closed_positions(since) do
     from(p in Position,
-      where: p.status == "closed" and p.closed_at >= ^since,
+      where: p.status in ["closed", "resolved_win", "resolved_loss", "sold"],
+      where: not is_nil(p.closed_at),
+      where: fragment("?::date", p.closed_at) >= ^since,
       order_by: [desc: p.closed_at]
     )
     |> Repo.all()
