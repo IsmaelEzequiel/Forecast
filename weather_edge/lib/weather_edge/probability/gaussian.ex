@@ -27,19 +27,28 @@ defmodule WeatherEdge.Probability.Gaussian do
   """
   @spec apply_kernel(map(), number()) :: map()
   def apply_kernel(prob_map, sigma) when is_map(prob_map) and sigma > 0 do
-    temps = Map.keys(prob_map)
+    source_temps = Map.keys(prob_map)
 
-    temps
+    # Expand target range beyond model predictions to capture tail probability.
+    # Without this, temperatures outside the model range get 0% probability,
+    # causing false "BUY NO" signals on adjacent outcomes.
+    spread = max(round(sigma * 3), 3)
+    min_temp = Enum.min(source_temps) - spread
+    max_temp = Enum.max(source_temps) + spread
+    target_temps = Enum.to_list(min_temp..max_temp)
+
+    target_temps
     |> Enum.map(fn target_temp ->
       smoothed_prob =
-        temps
+        source_temps
         |> Enum.reduce(0.0, fn source_temp, acc ->
           weight = gaussian_weight(source_temp, target_temp, sigma)
-          acc + weight * Map.fetch!(prob_map, source_temp)
+          acc + weight * Map.get(prob_map, source_temp, 0.0)
         end)
 
       {target_temp, smoothed_prob}
     end)
+    |> Enum.filter(fn {_temp, prob} -> prob > 1.0e-6 end)
     |> normalize()
   end
 

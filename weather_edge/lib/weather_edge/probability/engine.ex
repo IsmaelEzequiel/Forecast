@@ -8,9 +8,13 @@ defmodule WeatherEdge.Probability.Engine do
   when no accuracy data is available.
   """
 
+  require Logger
+
   alias WeatherEdge.Forecasts
+  alias WeatherEdge.Forecasts.MetarClient
   alias WeatherEdge.Probability.{Distribution, Gaussian}
   alias WeatherEdge.Calibration.BiasTracker
+  alias WeatherEdge.Timezone.PeakCalculator
 
   @doc """
   Computes a probability distribution for temperature outcomes given a station and target date.
@@ -38,15 +42,67 @@ defmodule WeatherEdge.Probability.Engine do
 
       model_weights = compute_model_weights(station_code)
 
-      distribution =
+      empirical =
         snapshots
         |> extract_temps(unit)
         |> build_weighted_empirical(snapshots, model_weights)
+
+      # For today's markets, inject observed temperature from METAR as a high-confidence data point.
+      # When the observed temp already exceeds model predictions, the models are wrong —
+      # the observation should dominate the distribution.
+      empirical =
+        if days_out == 0 do
+          inject_observed_temperature(empirical, station_code, unit)
+        else
+          empirical
+        end
+
+      distribution =
+        empirical
         |> Gaussian.apply_kernel(sigma)
         |> collapse_tails(lower_bound, upper_bound, unit)
         |> to_distribution()
 
       {:ok, distribution}
+    end
+  end
+
+  # Injects the observed METAR temperature into the empirical distribution.
+  # Weight depends on peak status:
+  # - post_peak: observed IS the final answer, gets 60% of total weight
+  # - near_peak: temp may still rise, gets 40% weight
+  # - pre_peak: observation is just current temp, gets 20% weight
+  defp inject_observed_temperature(empirical, station_code, unit) do
+    with {:ok, observed_high_c} <- MetarClient.get_todays_high(station_code) do
+      observed_temp = if unit == "F", do: round(observed_high_c * 9 / 5 + 32), else: round(observed_high_c)
+
+      # Look up station longitude for peak calculation
+      station_longitude = get_station_longitude(station_code)
+      {peak_status, _hours} = PeakCalculator.peak_status(station_longitude)
+
+      observed_weight =
+        case peak_status do
+          :post_peak -> 0.60
+          :night -> 0.60
+          :near_peak -> 0.40
+          :pre_peak -> 0.20
+        end
+
+      # Scale down existing model weights and inject observed
+      model_scale = 1.0 - observed_weight
+      scaled = Map.new(empirical, fn {temp, prob} -> {temp, prob * model_scale} end)
+      Map.update(scaled, observed_temp, observed_weight, &(&1 + observed_weight))
+    else
+      _ ->
+        Logger.debug("Engine: No METAR data for #{station_code}, using models only")
+        empirical
+    end
+  end
+
+  defp get_station_longitude(station_code) do
+    case WeatherEdge.Stations.get_by_code(station_code) do
+      {:ok, station} -> station.longitude
+      _ -> 0.0
     end
   end
 
