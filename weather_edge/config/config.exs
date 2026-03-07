@@ -60,13 +60,12 @@ config :weather_edge, Oban,
     {Oban.Plugins.Pruner, max_age: 3600 * 24 * 7},
     {Oban.Plugins.Cron,
      crontab: [
-       {"55-59 5 * * *", WeatherEdge.Workers.EventScannerWorker, queue: :scanner},
-       {"0-20 6 * * *", WeatherEdge.Workers.EventScannerWorker, queue: :scanner},
+       {"0 */2 * * *", WeatherEdge.Workers.EventScannerWorker, queue: :scanner},
        {"*/15 * * * *", WeatherEdge.Workers.ForecastRefreshWorker, queue: :forecasts},
        {"*/5 * * * *", WeatherEdge.Workers.MispricingWorker, queue: :signals},
        {"*/5 * * * *", WeatherEdge.Workers.PriceSnapshotWorker, queue: :signals},
        {"*/10 * * * *", WeatherEdge.Workers.PositionMonitorWorker, queue: :signals},
-       {"0 23 * * *", WeatherEdge.Workers.ResolutionWorker, queue: :cleanup}
+       {"0 6,12,23 * * *", WeatherEdge.Workers.ResolutionWorker, queue: :cleanup}
      ]}
   ]
 
