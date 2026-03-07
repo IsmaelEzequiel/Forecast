@@ -33,6 +33,21 @@ defmodule WeatherEdge.Trading.OrderManager do
     market_cluster_id = outcome["market_cluster_id"]
     event_id = outcome["event_id"]
 
+    cond do
+      is_nil(token_id) or token_id == "" ->
+        Logger.error("OrderManager: No token_id for #{label} at #{station_code}")
+        {:error, :no_token_id}
+
+      is_nil(price) or price <= 0 ->
+        Logger.error("OrderManager: Invalid price #{inspect(price)} for #{label}")
+        {:error, :invalid_price}
+
+      true ->
+        place_validated_order(station_code, token_id, price, label, market_cluster_id, event_id, amount, outcome)
+    end
+  end
+
+  defp place_validated_order(station_code, token_id, price, label, market_cluster_id, event_id, amount, outcome) do
     with :ok <- validate_balance(amount),
          :ok <- validate_no_duplicate(station_code, event_id),
          :ok <- validate_rate_limit(station_code) do

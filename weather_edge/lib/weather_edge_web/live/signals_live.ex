@@ -1738,10 +1738,19 @@ defmodule WeatherEdgeWeb.SignalsLive do
   end
 
   defp find_token_id(outcomes, outcome_label) when is_list(outcomes) do
-    case Enum.find(outcomes, fn o -> o["outcome_label"] == outcome_label || o["label"] == outcome_label end) do
-      %{"token_id" => token_id} -> token_id
+    match = Enum.find(outcomes, fn o ->
+      o["outcome_label"] == outcome_label || o["label"] == outcome_label
+    end)
+
+    case match do
+      %{"token_id" => token_id} when not is_nil(token_id) -> token_id
       %{"clob_token_ids" => [yes_token | _]} -> yes_token
       %{"clob_token_ids" => token} when is_binary(token) -> token
+      nil ->
+        require Logger
+        labels = Enum.map(outcomes, fn o -> o["outcome_label"] || o["label"] end)
+        Logger.warning("find_token_id: no match for '#{outcome_label}' in #{inspect(labels)}")
+        nil
       _ -> nil
     end
   end
