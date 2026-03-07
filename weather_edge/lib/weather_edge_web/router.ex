@@ -47,7 +47,7 @@ defmodule WeatherEdgeWeb.Router do
     live_dashboard "/dashboard",
       metrics: WeatherEdgeWeb.Telemetry,
       additional_pages: [
-        oban: ObanLiveDashboard
+        oban: Oban.LiveDashboard
       ]
   end
 end
