@@ -47,6 +47,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
        detail_signal_id: nil,
        detail_data: nil,
        detail_loading: false,
+       detail_buy_amount: nil,
        balance: cached_balance,
        wallet_address: wallet_address,
        station_codes: station_codes,
@@ -93,6 +94,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
         :if={@detail_signal_id != nil}
         detail_data={@detail_data}
         detail_loading={@detail_loading}
+        detail_buy_amount={@detail_buy_amount}
       />
 
       <div
@@ -519,6 +521,13 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
             <.position_section position={@detail_data.position} />
 
+            <.buy_controls_section
+              signal={@detail_data.signal}
+              station={@detail_data.station}
+              cluster={@detail_data.cluster}
+              detail_buy_amount={@detail_buy_amount}
+            />
+
             <.polymarket_link cluster={@detail_data.cluster} />
           </div>
         <% else %>
@@ -692,6 +701,76 @@ defmodule WeatherEdgeWeb.SignalsLive do
     """
   end
 
+  defp buy_controls_section(assigns) do
+    default_amount = assigns.station.buy_amount_usdc || 5.0
+    amount = assigns.detail_buy_amount || default_amount
+    market_price = assigns.signal.market_price || 0.01
+
+    estimated_tokens = if market_price > 0, do: amount / market_price, else: 0.0
+    payout = estimated_tokens * 1.0
+    return_pct = if amount > 0, do: (payout - amount) / amount * 100, else: 0.0
+
+    assigns =
+      assigns
+      |> assign(:amount, amount)
+      |> assign(:estimated_tokens, estimated_tokens)
+      |> assign(:payout, payout)
+      |> assign(:return_pct, return_pct)
+
+    ~H"""
+    <div class="space-y-3 border-t border-zinc-200 dark:border-zinc-700 pt-4">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Buy</h3>
+
+      <div class="space-y-2">
+        <div class="space-y-1">
+          <label class="text-xs text-zinc-500 dark:text-zinc-400">Amount (USDC)</label>
+          <input
+            type="number"
+            name="buy_amount"
+            value={@amount}
+            min="0.1"
+            step="0.5"
+            phx-change="update_buy_amount"
+            class="block w-full text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
+          />
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-xs">
+          <div class="space-y-0.5">
+            <div class="text-zinc-500 dark:text-zinc-400">Est. Tokens</div>
+            <div class="text-zinc-900 dark:text-zinc-100 font-medium"><%= format_tokens(@estimated_tokens) %></div>
+          </div>
+          <div class="space-y-0.5">
+            <div class="text-zinc-500 dark:text-zinc-400">Payout if Wins</div>
+            <div class="text-zinc-900 dark:text-zinc-100 font-medium">$<%= format_price(@payout) %></div>
+          </div>
+          <div class="space-y-0.5">
+            <div class="text-zinc-500 dark:text-zinc-400">Return</div>
+            <div class="text-green-600 dark:text-green-400 font-medium"><%= format_return(@return_pct) %></div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button
+            phx-click="buy_from_detail"
+            phx-value-side="YES"
+            class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+          >
+            BUY YES
+          </button>
+          <button
+            phx-click="buy_from_detail"
+            phx-value-side="NO"
+            class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+          >
+            BUY NO
+          </button>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   defp polymarket_link(assigns) do
     ~H"""
     <div :if={@cluster.event_slug} class="pt-2">
@@ -760,7 +839,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
      assign(socket,
        detail_signal_id: signal_id,
        detail_data: nil,
-       detail_loading: true
+       detail_loading: true,
+       detail_buy_amount: nil
      )}
   end
 
@@ -815,6 +895,55 @@ defmodule WeatherEdgeWeb.SignalsLive do
          socket
          |> assign(:buying, true)
          |> assign(:buy_progress, "Preparing...")}
+    end
+  end
+
+  def handle_event("update_buy_amount", %{"buy_amount" => amount_str}, socket) do
+    case Float.parse(to_string(amount_str)) do
+      {amount, _} when amount > 0 ->
+        {:noreply, assign(socket, :detail_buy_amount, amount)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("buy_from_detail", %{"side" => side}, socket) when side in ~w(YES NO) do
+    detail_data = socket.assigns.detail_data
+
+    if detail_data == nil do
+      {:noreply, put_flash(socket, :error, "No signal detail loaded")}
+    else
+      signal = detail_data.signal
+      cluster = detail_data.cluster
+      station = detail_data.station
+      default_amount = station.buy_amount_usdc || 5.0
+      amount = socket.assigns.detail_buy_amount || default_amount
+
+      token_id = find_token_id(cluster.outcomes, signal.outcome_label)
+
+      outcome = %{
+        "token_id" => token_id,
+        "outcome_label" => signal.outcome_label,
+        "price" => signal.market_price,
+        "market_cluster_id" => cluster.id,
+        "event_id" => cluster.event_slug,
+        "auto_order" => false
+      }
+
+      case OrderManager.place_buy_order(signal.station_code, outcome, amount) do
+        {:ok, _order} ->
+          updated_detail = DetailData.fetch_signal_detail(signal.id)
+
+          {:noreply,
+           socket
+           |> put_flash(:info, "#{side} order placed for #{signal.outcome_label} ($#{format_price(amount)})")
+           |> assign(:detail_data, updated_detail)
+           |> then(&do_reload_signals(&1, &1.assigns.filters))}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Order failed: #{inspect(reason)}")}
+      end
     end
   end
 
@@ -1105,6 +1234,13 @@ defmodule WeatherEdgeWeb.SignalsLive do
   end
 
   defp format_volume(_, _), do: "-"
+
+  defp format_return(val) when is_number(val) do
+    sign = if val >= 0, do: "+", else: ""
+    "#{sign}#{:erlang.float_to_binary(val * 1.0, decimals: 1)}%"
+  end
+
+  defp format_return(_), do: "-"
 
   defp format_tokens(nil), do: "-"
   defp format_tokens(tokens) when is_number(tokens), do: :erlang.float_to_binary(tokens * 1.0, decimals: 1)
