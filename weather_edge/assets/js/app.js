@@ -42,6 +42,164 @@ Hooks.DarkMode = {
   }
 }
 
+Hooks.ChartHook = {
+  mounted() {
+    this.chart = this.createChart()
+  },
+  updated() {
+    if (this.chart) {
+      const config = this.getConfig()
+      this.chart.data = config.data
+      if (config.options) {
+        this.chart.options = config.options
+      }
+      this.chart.update()
+    }
+  },
+  destroyed() {
+    if (this.chart) {
+      this.chart.destroy()
+      this.chart = null
+    }
+  },
+  createChart() {
+    const config = this.getConfig()
+    const ctx = this.el.getContext("2d")
+    return new Chart(ctx, config)
+  },
+  getConfig() {
+    const chartType = this.el.dataset.chartType || "line"
+    const rawData = JSON.parse(this.el.dataset.chartData || "{}")
+
+    if (chartType === "distribution") {
+      return this.distributionConfig(rawData)
+    } else if (chartType === "edge_history") {
+      return this.edgeHistoryConfig(rawData)
+    } else if (chartType === "price_history") {
+      return this.priceHistoryConfig(rawData)
+    }
+    return { type: "line", data: { labels: [], datasets: [] } }
+  },
+  distributionConfig(data) {
+    return {
+      type: "bar",
+      data: {
+        labels: data.labels || [],
+        datasets: [
+          {
+            label: "Model Prob",
+            data: data.model_probs || [],
+            backgroundColor: "rgba(59, 130, 246, 0.7)",
+            borderColor: "rgb(59, 130, 246)",
+            borderWidth: 1
+          },
+          {
+            label: "Market Price",
+            data: data.market_prices || [],
+            backgroundColor: "rgba(249, 115, 22, 0.7)",
+            borderColor: "rgb(249, 115, 22)",
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { min: 0, max: 1, ticks: { callback: v => (v * 100) + "%" } }
+        },
+        plugins: { legend: { position: "bottom" } }
+      }
+    }
+  },
+  edgeHistoryConfig(data) {
+    return {
+      type: "line",
+      data: {
+        labels: data.times || [],
+        datasets: [
+          {
+            label: "Edge %",
+            data: data.edges || [],
+            borderColor: "rgb(34, 197, 94)",
+            backgroundColor: "rgba(34, 197, 94, 0.1)",
+            fill: true,
+            tension: 0.3,
+            pointRadius: 2
+          },
+          {
+            label: "Model Prob %",
+            data: data.model_probs || [],
+            borderColor: "rgb(59, 130, 246)",
+            borderDash: [5, 5],
+            tension: 0.3,
+            pointRadius: 2
+          },
+          {
+            label: "Market Price",
+            data: data.market_prices || [],
+            borderColor: "rgb(249, 115, 22)",
+            borderDash: [3, 3],
+            tension: 0.3,
+            pointRadius: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { ticks: { callback: v => v + "%" } }
+        },
+        plugins: { legend: { position: "bottom" } }
+      }
+    }
+  },
+  priceHistoryConfig(data) {
+    const datasets = [
+      {
+        label: "YES Price",
+        data: data.prices || [],
+        borderColor: "rgb(59, 130, 246)",
+        backgroundColor: "rgba(59, 130, 246, 0.1)",
+        fill: true,
+        tension: 0.3,
+        pointRadius: 2
+      }
+    ]
+    if (data.buy_price != null) {
+      datasets.push({
+        label: "Buy Price",
+        data: (data.prices || []).map(() => data.buy_price),
+        borderColor: "rgb(239, 68, 68)",
+        borderDash: [8, 4],
+        pointRadius: 0,
+        fill: false
+      })
+    }
+    return {
+      type: "line",
+      data: {
+        labels: data.times || [],
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            min: 0,
+            max: 1,
+            ticks: { callback: v => "$" + v.toFixed(2) }
+          }
+        },
+        plugins: { legend: { position: "bottom" } }
+      }
+    }
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,

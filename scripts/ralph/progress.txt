@@ -1,3 +1,139 @@
 # Ralph Progress Log
-Started: Fri Mar  6 12:50:32 -03 2026
+Feature: Signals Intelligence Page
+Started: Fri Mar  7 2026
+---
+
+## Codebase Patterns
+- Phoenix LiveView app at weather_edge/ subdirectory
+- Use WeatherEdgeWeb, :live_view for all LiveView modules
+- Header component: import WeatherEdgeWeb.Components.HeaderComponent, use .dashboard_header
+- PubSub: use WeatherEdge.PubSubHelper for subscribe/broadcast
+- Signals table is TimescaleDB hypertable with: station_code, market_cluster_id, computed_at, outcome_label, model_probability, market_price, edge, recommended_side, alert_level
+- Existing helpers in analytics_live.ex: format_pnl, format_price, format_pct, format_edge, side_class, alert_class, confidence_class, pnl_color, edge_color
+- Dark mode support: always include dark: variants for zinc colors
+- Tailwind styling: rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4
+- Router auth: pipe_through [:browser, WeatherEdgeWeb.Plugs.RequireAuth]
+- Balance from persistent_term: :persistent_term.get(:sidecar_balance, nil)
+- Sidecar positions: :persistent_term.get(:sidecar_positions, [])
+- Trading client: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
+- Existing contexts to reuse: WeatherEdge.Signals, WeatherEdge.Markets, WeatherEdge.Stations, WeatherEdge.Forecasts, WeatherEdge.Trading
+- Job tracking: WeatherEdge.JobTracker.start/finish for worker state
+- SignalsLive default_filters: %{stations: [], min_edge: 8, resolution_date: "all", side: "all", max_price: nil, alert_level: "all", sort_by: "edge_desc", actionable_only: false, has_position: "all"}
+- Signals.Queries: list_filtered_signals(filters, opts) and count_filtered_signals(filters) for all filtered signal loading
+- Filter changes in SignalsLive: use `reload_signals/2` (returns {:noreply, socket}) or `do_reload_signals/2` (returns socket) for handle_info contexts
+- OrderManager.place_buy_order(station_code, outcome_map, amount) - outcome_map needs: "token_id", "outcome_label", "price", "market_cluster_id", "event_id"
+- Station codes loaded from `Stations.list_stations()` on connected mount for filter dropdown
+- Signal deduplication: DISTINCT ON (station_code, outcome_label, market_cluster_id) ordered by computed_at desc
+- Position left_join: on market_cluster_id + outcome_label + status "open"
+- Price trend: `Markets.price_trend(cluster_id, outcome_label, hours: 6)` returns `{:up|:down|:flat, delta_float}`
+---
+
+## 2026-03-07 - US-001
+- Added /signals route to router.ex rendering WeatherEdgeWeb.SignalsLive
+- Added 'Signals' link in header between Dashboard and Analytics
+- Added signals:new topic to PubSubHelper
+- SignalsLive subscribes to signals:new, portfolio:balance_update, portfolio:position_update
+- Renders dashboard_header with balance/wallet, placeholder filter bar and content area
+- Assigns: filters, signals, total_count, selected (MapSet), view_mode (:table), detail_signal_id, balance, wallet_address
+- Files changed: router.ex, header_component.ex, pub_sub_helper.ex, signals_live.ex (new)
+- **Learnings for future iterations:**
+  - No signals:new topic existed before - had to add it to PubSubHelper
+  - SignalsLive follows same pattern as DashboardLive: use WeatherEdgeWeb :live_view, import HeaderComponent
+  - Wallet address from Application.get_env(:weather_edge, :polymarket)[:wallet_address]
+---
+
+## 2026-03-07 - US-002
+- Created WeatherEdge.Signals.Queries module with list_filtered_signals/2 and count_filtered_signals/1
+- Deduplication via subquery: latest signal per (station_code, outcome_label, market_cluster_id) using DISTINCT ON + ORDER BY computed_at DESC
+- Joins: Signal -> MarketCluster (market_cluster_id), Signal -> stations table (station_code), left_join positions (market_cluster_id + outcome_label + status "open")
+- Base filter: mc.resolved == false
+- Dynamic filters: stations, min_edge, side, max_price, alert_level, resolution_date (today/tomorrow/+2d/+3d), has_position, actionable_only
+- Sort options: edge_desc, edge_asc, model_prob_desc, time_to_resolution, price_asc, newest
+- Pagination via limit/offset (default 20/0)
+- Returns maps with keys: signal, cluster, station, position, hours_to_resolution
+- Files changed: lib/weather_edge/signals/queries.ex (new)
+- **Learnings for future iterations:**
+  - Position join needs station_code-less matching: join on market_cluster_id + outcome_label + status only (station_code already implied by cluster)
+  - Station join uses raw table name "stations" with `on: st.code == s.station_code` since Signal doesn't have belongs_to :station
+  - Ecto `[..., p]` syntax for referencing last binding in positional where clauses
+  - `filter_actionable_only` compares s.market_price <= st.max_buy_price (station's configured threshold)
+---
+
+## 2026-03-07 - US-003
+- Added view mode toggle component with Table/Grouped/Heatmap buttons
+- Wired filter state: signals loaded via Signals.Queries on connected mount
+- handle_event "set_view" switches view_mode assign
+- View mode persists (only view_mode assign changes, filters untouched)
+- Files changed: signals_live.ex
+- **Learnings for future iterations:**
+  - Use `String.to_existing_atom/1` for view mode atoms since they're already defined
+  - Toggle buttons use `:for` comprehension in HEEx for clean iteration
+  - Load data only on `connected?(socket)` to avoid SSR queries (same pattern as DashboardLive)
+  - Function component `view_mode_toggle/1` keeps render clean
+---
+
+## 2026-03-07 - US-004
+- Built filter bar UI component with all filter controls: station multi-select, min edge input, resolution date select, side select, max price input, alert level select, sort select, has_position select, actionable_only checkbox
+- Added status line showing active filter count and signal counts with Clear All button
+- Filter bar rendered as sticky div at top of signals content area
+- Event handlers: `update_filter` (for all select/input changes), `toggle_actionable` (checkbox), `clear_filters` (reset)
+- Each filter change re-queries via Signals.Queries and resets pagination
+- Added `station_codes` assign loaded from Stations.list_stations() on connected mount
+- Files changed: signals_live.ex
+- **Learnings for future iterations:**
+  - Phoenix LiveView `phx-change` on individual inputs sends the input name/value as params - use `maybe_update_*` helpers to extract relevant fields
+  - For multi-select, LiveView sends `%{"stations" => ["CODE1", "CODE2"]}` as a list
+  - Use `assign/3` inside function components to compute derived values like `active_count`
+  - Sticky filter bar needs `z-30` to stay above content but below modals (z-50)
+  - Checkbox toggle uses `phx-click` not `phx-change` since there's no form wrapping it
+---
+
+## 2026-03-07 - US-005
+- Added `price_trend/3` function to WeatherEdge.Markets module
+- Queries market_snapshots for cluster_id + outcome_label in last N hours (default 6)
+- Returns `{direction, delta}` where direction is :up, :down, or :flat
+- Returns `{:flat, 0.0}` when fewer than 2 snapshots available
+- Files changed: lib/weather_edge/markets.ex
+- **Learnings for future iterations:**
+  - MarketSnapshot schema: snapshot_at (utc_datetime), outcome_label, yes_price, no_price, volume, belongs_to market_cluster
+  - Markets module is the right context for snapshot-related queries (already has MarketCluster operations)
+  - Use `Markets.price_trend(cluster_id, outcome_label)` for trend column in table view (US-006)
+---
+
+## 2026-03-07 - US-006
+- Built full Table View with signal rows in SignalsLive
+- Columns: checkbox, Time, Station, Temp, Resolves, Action, Alert, Confidence, Market, Model, Edge, Volume, Trend, Pos?
+- Added event handlers: toggle_select (checkbox), open_detail (row click), filter_station (station code click), load_more (pagination)
+- Resolves column shows hours with red text if <6h and "Today" badge
+- Action column shows BUY YES (green), BUY NO (blue), or BOUGHT (purple) badges
+- Edge column bold with color coding: green >15%, yellow >8%
+- Trend column calls Markets.price_trend/2 with arrow + delta display
+- Volume extracted from cluster outcomes JSONB by outcome_label
+- Show more button at bottom loads next 20 signals via offset pagination
+- Added offset assign to socket for pagination state, reset on filter changes
+- Files changed: signals_live.ex
+- **Learnings for future iterations:**
+  - Formatting helpers (format_price, format_pct, format_edge, alert_class, confidence_class) are duplicated from analytics_live.ex since they're private - consider extracting to shared module
+  - trend_cell calls Markets.price_trend/2 per row which makes N+1 DB queries - acceptable for 20 rows but may need batch loading for larger pages
+  - Cluster outcomes JSONB can be a list or map, need to handle both formats in format_volume
+  - Use `Calendar.strftime(dt, "%H:%M")` for time formatting in Elixir
+  - Checkbox phx-click inside a row with phx-click requires event propagation awareness - both events fire but toggle_select handles the checkbox state
+---
+
+## 2026-03-07 - US-007
+- Built sticky Quick Actions Bar at bottom of page with balance display, selected count, estimated cost, and BUY ALL button
+- Added buy_selected event handler with validations: empty selection, max 10, duplicate positions, insufficient balance
+- Orders executed sequentially via OrderManager.place_buy_order with progress updates via send/handle_info
+- Progress shown as "Buying 1/3..." updated in real-time
+- After completion: flash success/error, clear selection, reload signals
+- Refactored reload_signals into do_reload_signals helper for reuse in handle_info
+- Added buying and buy_progress assigns to socket for UI state
+- Files changed: signals_live.ex
+- **Learnings for future iterations:**
+  - OrderManager.place_buy_order(station_code, outcome_map, amount) is the API for placing orders - outcome_map needs "token_id", "outcome_label", "price", "market_cluster_id", "event_id" keys
+  - Token IDs are in cluster.outcomes JSONB array/map - use find_token_id helper to extract by outcome_label
+  - Station buy_amount_usdc (default 5.0) is used as the order amount
+  - For handle_info that needs to call reload_signals, extract a do_reload_signals helper that returns socket (not {:noreply, socket})
+  - Balance validation uses min_reserve of 2.0 USDC (from OrderManager pattern)
+  - Quick actions bar uses z-40 (above content z-30, below modals z-50) and fixed positioning
 ---

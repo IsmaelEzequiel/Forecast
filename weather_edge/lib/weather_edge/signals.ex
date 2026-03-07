@@ -6,6 +6,7 @@ defmodule WeatherEdge.Signals do
   import Ecto.Query
   alias WeatherEdge.Repo
   alias WeatherEdge.Signals.Signal
+  alias WeatherEdge.PubSubHelper
 
   @doc """
   Creates a Signal record.
@@ -54,6 +55,10 @@ defmodule WeatherEdge.Signals do
         end
       end)
       |> Enum.filter(& &1)
+
+    Enum.each(results, fn signal ->
+      PubSubHelper.broadcast(PubSubHelper.signals_new(), {:new_signal, signal})
+    end)
 
     {:ok, results}
   end

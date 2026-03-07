@@ -34,6 +34,8 @@
 - HTTP client tests use Bypass for mocking - use `Bypass.stub` (not `expect_once`) for error responses since Req retries on 429/500
 - GammaClient uses `Application.get_env(:weather_edge, :gamma_api_url)` for configurable base URL (useful for test overrides)
 - LiveView tests use `ConnCase` with `import Phoenix.LiveViewTest`; modal close uses `render_hook` since CoreComponents modal has JS-driven close
+- PubSub message formats: `{:new_signal, signal}` on signals:new, `{:balance_updated, balance}` on portfolio:balance_update, `{:position_updated, position}` and `{:positions_synced, positions}` on portfolio:position_update
+- Use `Process.send_after(self(), msg, ms)` for timed UI state cleanup (e.g., highlight fade)
 
 ---
 
@@ -584,4 +586,118 @@
   - OpenMeteoClient reads base URL from `Application.get_env(:weather_edge, :forecasts)[:open_meteo_base_url]`
   - Phoenix CoreComponents modal close button uses JS commands, not simple phx-click - use `render_hook(view, "close_add_station_modal", %{})` to test close
   - LiveView tests: use `element("button", "text")` to find buttons by visible text, more reliable than attribute selectors
+---
+
+## 2026-03-07 - US-008
+- Implemented: Signal Detail Panel slide-in with data loading module and full UI
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/detail_data.ex` - New DetailData module with fetch_signal_detail/1: loads signal with joins (cluster, station, position), fetches distribution via Engine, model breakdown via Forecasts, orderbook via ClobClient, METAR conditions (only for today/tomorrow targets), balance from persistent_term
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added detail panel slide-in UI: fixed right panel (w-2/5, z-50) with close button and click-outside overlay, async data loading via send(self(), {:load_detail, signal_id}), sections for header (station/outcome/edge/alert/confidence), cluster distribution (model prob blue bars vs market price orange bars with edge delta), model breakdown (per-model max_temp_c with consensus count), orderbook (best bid/ask/spread), METAR conditions (current temp + today's max observed), position (tokens/avg_buy/current/unrealized P&L), Polymarket link
+- **Learnings for future iterations:**
+  - DetailData uses same join pattern as Queries module but fetches a single signal by ID
+  - Async detail loading pattern: open_detail sets detail_loading=true, sends message to self, handle_info fetches data and sets detail_loading=false
+  - Guard against stale loads: handle_info checks detail_signal_id still matches before applying data
+  - Orderbook response may use string keys or atom keys - parse_orderbook handles both patterns
+  - METAR is only fetched when target_date is today or tomorrow (no point fetching current conditions for future dates)
+  - Click-outside overlay uses a separate div with z-40 behind the panel (z-50) to catch clicks
+---
+
+## 2026-03-07 - US-009
+- Implemented: Buy controls in the Signal Detail Panel with configurable amount, estimates, and order execution
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added buy_controls_section component (amount input defaulting to station buy_amount_usdc, estimated tokens/payout/return display, BUY YES and BUY NO buttons), update_buy_amount event handler, buy_from_detail event handler (executes order via OrderManager.place_buy_order, reloads detail data and signals on success, flashes error on failure), detail_buy_amount assign, format_return helper
+- **Learnings for future iterations:**
+  - Reuse existing build_outcome/find_token_id patterns from batch buy for single-order detail panel buys
+  - detail_buy_amount is reset to nil on each open_detail so station default is used
+  - After successful buy, reload both detail data and signals list to reflect new position
+---
+
+## 2026-03-07 - US-010
+- Implemented: Chart.js integration via CDN + LiveView ChartHook + edge_history and price_history queries
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/layouts/root.html.heex` - Added Chart.js CDN script tag (v4.4.7)
+  - `weather_edge/assets/js/app.js` - Added ChartHook with three chart type configs: distribution (horizontal bar with model prob blue + market price orange), edge_history (line chart with edge/model_prob/market_price), price_history (line chart with YES price + optional buy price marker)
+  - `weather_edge/lib/weather_edge/signals/queries.ex` - Added edge_history/4 returning %{time, edge, model_prob, market_price} for last N hours
+  - `weather_edge/lib/weather_edge/markets.ex` - Added price_history/3 returning %{time, yes_price} for last N hours from market_snapshots
+- **Learnings for future iterations:**
+  - No npm/package.json in this project - use CDN for JS libraries
+  - Chart.js CDN must load before app.js (non-defer) so `Chart` global is available to hooks
+  - ChartHook reads config from data attributes (data-chart-type, data-chart-data) and supports mounted/updated/destroyed lifecycle
+  - edge_history goes in Signals.Queries (queries signals table), price_history goes in Markets context (queries market_snapshots table)
+---
+
+## 2026-03-07 - US-011
+- Implemented: Charts rendered in Detail Panel using Chart.js hooks
+- What was implemented:
+  - Three chart sections added to detail panel: Cluster Distribution (horizontal bar), Edge History (24h line), Price History (48h line)
+  - DetailData.fetch_signal_detail now fetches edge_history and price_history data
+  - Charts use phx-hook="ChartHook" with JSON-encoded data in data attributes
+  - Distribution chart: horizontal bar comparing model probability vs market price per outcome
+  - Edge history chart: line chart showing edge %, model prob %, and market price over 24h
+  - Price history chart: line chart showing YES price over 48h with buy price marker if position exists
+  - Charts update when detail panel reloads (no phx-update="ignore", hooks handle mounted/updated lifecycle)
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/detail_data.ex` - Added edge_history and price_history fetching via Queries and Markets modules
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added distribution_chart_section/1, edge_history_chart_section/1, price_history_chart_section/1 components with canvas elements and ChartHook
+- **Learnings for future iterations:**
+  - Chart canvas elements should NOT use phx-update="ignore" when data changes between renders (e.g., switching signals) — the hook's updated() callback handles re-rendering
+  - Use Jason.encode! to pass chart data as JSON in data-chart-data attribute
+  - Chart data should be pre-computed (e.g., edge * 100 for percentages) before encoding to avoid JS-side transformations
+  - The existing text-based distribution_section was kept alongside the chart version for accessibility/detail
+---
+
+## 2026-03-07 - US-012
+- Implemented: Grouped View with event cards for signals page
+  - Created WeatherEdge.Signals.GroupedView module with group_signals_by_event/1
+  - Groups signals by {station_code, market_cluster_id}
+  - Each group includes: best_play (highest-edge YES signal), hedge_options (safe_no signals), other_signals, cluster_health (sum YES prices)
+  - Collapsible cards sorted by soonest resolution using HTML details/summary
+  - Card sections: Cluster Health with deviation warning, BEST PLAY (highlighted), HEDGE OPTIONS, OTHER
+  - Buttons: BUY BEST, BUY BEST + HEDGE, VIEW FULL CLUSTER
+  - Added buy_best and buy_best_hedge event handlers with single/batch order execution
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/grouped_view.ex` - New module with group_signals_by_event/1
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added GroupedView alias, grouped_view/1 component, grouped_card/1, grouped_signal_row/1, format_payout/1, format_return_pct/1, buy_best/buy_best_hedge handlers, find_signal_row/2, execute_single_buy/2
+- **Learnings for future iterations:**
+  - HTML details/summary elements work well for collapsible cards in LiveView without extra JS
+  - The existing action_badge/1 and alert helpers can be reused across view modes
+  - buy_best_hedge reuses the existing execute_buy_batch message handler for multi-order execution
+  - Grouped view renders from the same signals list as table view - no separate query needed
+---
+
+## 2026-03-07 - US-013
+- Implemented: Heatmap View with grid showing best edge per station per date
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/heatmap_data.ex` - New module with `build_heatmap/1` function that groups signals by {station_code, target_date} for Today through +3d, computing best edge, signal count, position indicator per cell
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added `heatmap_view/1` component with color-coded grid table, `heatmap_cell_color/1` helper for intensity levels, `heatmap_click` event handler that sets station+date filters and switches to table view, `heatmap_date_to_filter/1` helper to convert ISO date to resolution filter value
+- **Learnings for future iterations:**
+  - HeatmapData follows same pattern as GroupedView - a separate data module that transforms signal lists into view-specific structures
+  - The `_other` catch-all in the view_mode case statement was the placeholder for heatmap - replaced with `:heatmap` match while keeping the catch-all
+  - `do_reload_signals/2` returns the socket (not a `{:noreply, socket}` tuple) which is useful when you need to combine it with other assign calls before returning
+  - Date filter values map to strings: "today", "tomorrow", "+2d", "+3d" - use `Date.diff/2` from today to convert
+---
+
+## 2026-03-07 - US-014
+- Implemented: Performance Tracker section with historical signal accuracy and P&L stats
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/performance.ex` - New module with `compute_stats/1` that queries `forecast_accuracy` and closed `positions` tables, computes overall accuracy, accuracy by alert level, accuracy by station with P&L, and builds signal history list
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added `performance_tracker/1` collapsible component with summary stats grid (accuracy, avg edge, total P&L, signals tracked), `accuracy_by_level_table/1`, `accuracy_by_station_table/1`, `signal_history_table/1` subcomponents, `toggle_performance` event handler with lazy loading via `send(self(), :load_performance)`, `handle_info(:load_performance)`, helper functions `pnl_color/1` and `result_class/1`
+- **Learnings for future iterations:**
+  - Lazy loading pattern: assign data as nil, load on first expand via `send(self(), :message)`, check `== nil` to avoid reloading
+  - Calibration.Accuracy has `best_edge`, `auto_buy_outcome`, `auto_buy_pnl`, `resolution_correct` fields useful for performance tracking
+  - Position schema has `realized_pnl`, `closed_at`, `status` fields for closed position P&L computation
+  - Git working directory for commits is the repo root, not `weather_edge/` - use full relative paths from repo root when staging
+---
+
+## 2026-03-07 - US-015
+- Implemented: Real-time PubSub updates for signals, balance, and positions in SignalsLive
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals.ex` - Added PubSubHelper broadcast of {:new_signal, signal} after store_signals creates records
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added handle_info for {:new_signal}, {:balance_updated}, {:position_updated}, {:positions_synced}, {:clear_highlight}; added highlighted assign with 3s fade; added stale signal detection with warning icon; added signal_matches_filters?/2 for filter-aware prepend; added build_signal_row/1 for enriching raw signal into row map
+- **Learnings for future iterations:**
+  - PubSub message formats: {:balance_updated, balance}, {:position_updated, position}, {:positions_synced, positions}, {:new_signal, signal}
+  - The signals:new topic wasn't being broadcast to until this iteration - had to add broadcast in store_signals
+  - build_signal_row/1 mirrors the to_result_map/1 structure from Queries module but does individual DB lookups
+  - Stale detection compares signal.market_price against cluster outcomes' current price field
+  - MapSet is used for both :selected and :highlighted assigns to track transient UI state
 ---
