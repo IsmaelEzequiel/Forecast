@@ -195,6 +195,7 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
                 <th class="text-right py-2 px-3">Market</th>
                 <th class="text-left py-2 pl-3">Level</th>
                 <th class="text-left py-2 pl-3">Confidence</th>
+                <th class="text-right py-2 pl-3"></th>
               </tr>
             </thead>
             <tbody>
@@ -223,6 +224,16 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
                   <span class={["text-xs px-1.5 py-0.5 rounded", confidence_class(sig.confidence)]}>
                     <%= sig.confidence || "-" %>
                   </span>
+                </td>
+                <td class="py-2 pl-3 text-right">
+                  <a
+                    :if={signal_url(sig)}
+                    href={signal_url(sig)}
+                    target="_blank"
+                    class="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline"
+                  >
+                    Open
+                  </a>
                 </td>
               </tr>
             </tbody>
@@ -539,6 +550,11 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
   defp confidence_class("high"), do: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400"
   defp confidence_class("forecast"), do: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500"
   defp confidence_class(_), do: "bg-zinc-50 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500"
+
+  defp signal_url(%{market_cluster: %{event_slug: slug}}) when is_binary(slug) and slug != "" do
+    "https://polymarket.com/event/#{slug}"
+  end
+  defp signal_url(_), do: nil
 
   defp best_model(%{model_stats: model_stats}) when map_size(model_stats) > 0 do
     {model, _} = Enum.min_by(model_stats, fn {_m, s} -> s.mae end)
