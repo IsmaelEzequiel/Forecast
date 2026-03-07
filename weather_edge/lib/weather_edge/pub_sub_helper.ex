@@ -16,6 +16,7 @@ defmodule WeatherEdge.PubSubHelper do
 
   def portfolio_balance_update, do: "portfolio:balance_update"
   def portfolio_position_update, do: "portfolio:position_update"
+  def signals_new, do: "signals:new"
 
   # Broadcast and subscribe wrappers
 
