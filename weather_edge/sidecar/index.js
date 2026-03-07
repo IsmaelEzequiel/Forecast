@@ -101,11 +101,12 @@ async function fetchPositions() {
 // --- Order placement (called by Phoenix) ---
 
 async function placeOrder(tokenId, side, price, size) {
+  // SDK expects string values for price/size and uppercase side
   const result = await client.createAndPostOrder({
-    tokenID: tokenId,
-    price,
-    size,
-    side,
+    tokenID: tokenId.toString(),
+    price: parseFloat(price),
+    size: parseFloat(size),
+    side: side.toUpperCase(),
     orderType: "FOK",
   });
   return result;
