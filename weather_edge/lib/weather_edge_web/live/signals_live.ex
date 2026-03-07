@@ -5,6 +5,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   alias WeatherEdge.Signals.Queries
   alias WeatherEdge.Stations
   alias WeatherEdge.Markets
+  alias WeatherEdge.Trading.OrderManager
 
   import WeatherEdgeWeb.Components.HeaderComponent
 
@@ -46,7 +47,9 @@ defmodule WeatherEdgeWeb.SignalsLive do
        balance: cached_balance,
        wallet_address: wallet_address,
        station_codes: station_codes,
-       offset: 0
+       offset: 0,
+       buying: false,
+       buy_progress: nil
      )}
   end
 
@@ -73,6 +76,61 @@ defmodule WeatherEdgeWeb.SignalsLive do
             </p>
           </div>
         <% end %>
+      </div>
+
+      <.quick_actions_bar
+        selected={@selected}
+        signals={@signals}
+        balance={@balance}
+        buying={@buying}
+        buy_progress={@buy_progress}
+      />
+    </div>
+    """
+  end
+
+  defp quick_actions_bar(assigns) do
+    selected_signals = Enum.filter(assigns.signals, fn row -> MapSet.member?(assigns.selected, row.signal.id) end)
+    estimated_cost = Enum.reduce(selected_signals, 0.0, fn row, acc -> acc + (row.station.buy_amount_usdc || 5.0) end)
+    selected_count = MapSet.size(assigns.selected)
+
+    assigns =
+      assigns
+      |> assign(:selected_count, selected_count)
+      |> assign(:estimated_cost, estimated_cost)
+
+    ~H"""
+    <div class="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-6 py-3 shadow-lg">
+      <div class="flex items-center justify-between max-w-7xl mx-auto">
+        <div class="flex items-center gap-4 text-sm">
+          <span class="text-zinc-500 dark:text-zinc-400">
+            Balance: <span class="font-medium text-zinc-900 dark:text-zinc-100">$<%= format_price(@balance || 0) %></span>
+          </span>
+          <span class="text-zinc-500 dark:text-zinc-400">
+            Selected: <span class="font-medium text-zinc-900 dark:text-zinc-100"><%= @selected_count %></span>
+          </span>
+          <span :if={@selected_count > 0} class="text-zinc-500 dark:text-zinc-400">
+            Est. Cost: <span class="font-medium text-zinc-900 dark:text-zinc-100">$<%= format_price(@estimated_cost) %></span>
+          </span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span :if={@buying && @buy_progress} class="text-sm text-blue-600 dark:text-blue-400 font-medium">
+            <%= @buy_progress %>
+          </span>
+          <button
+            phx-click="buy_selected"
+            disabled={@selected_count == 0 || @buying}
+            class={[
+              "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+              if(@selected_count > 0 && !@buying,
+                do: "bg-green-600 hover:bg-green-700 text-white",
+                else: "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 dark:text-zinc-500 cursor-not-allowed"
+              )
+            ]}
+          >
+            <%= if @buying, do: "Buying...", else: "BUY ALL #{@selected_count}" %>
+          </button>
+        </div>
       </div>
     </div>
     """
@@ -461,6 +519,46 @@ defmodule WeatherEdgeWeb.SignalsLive do
     reload_signals(socket, filters)
   end
 
+  def handle_event("buy_selected", _params, socket) do
+    selected = socket.assigns.selected
+    signals = socket.assigns.signals
+    balance = socket.assigns.balance || 0.0
+    selected_count = MapSet.size(selected)
+
+    selected_signals =
+      Enum.filter(signals, fn row -> MapSet.member?(selected, row.signal.id) end)
+
+    estimated_cost =
+      Enum.reduce(selected_signals, 0.0, fn row, acc ->
+        acc + (row.station.buy_amount_usdc || 5.0)
+      end)
+
+    min_reserve = 2.0
+
+    cond do
+      selected_count == 0 ->
+        {:noreply, put_flash(socket, :error, "No signals selected")}
+
+      selected_count > 10 ->
+        {:noreply, put_flash(socket, :error, "Maximum 10 signals can be bought at once")}
+
+      Enum.any?(selected_signals, fn row -> row.position != nil end) ->
+        {:noreply, put_flash(socket, :error, "Some selected signals already have positions")}
+
+      balance < estimated_cost + min_reserve ->
+        {:noreply,
+         put_flash(socket, :error, "Insufficient balance: $#{format_price(balance)} available, $#{format_price(estimated_cost + min_reserve)} needed")}
+
+      true ->
+        send(self(), {:execute_buy_batch, selected_signals})
+
+        {:noreply,
+         socket
+         |> assign(:buying, true)
+         |> assign(:buy_progress, "Preparing...")}
+    end
+  end
+
   def handle_event("load_more", _params, socket) do
     new_offset = socket.assigns.offset + 20
 
@@ -474,18 +572,102 @@ defmodule WeatherEdgeWeb.SignalsLive do
      )}
   end
 
+  @impl true
+  def handle_info({:execute_buy_batch, selected_signals}, socket) do
+    total = length(selected_signals)
+    results = execute_orders_sequentially(selected_signals, total, socket)
+
+    succeeded = Enum.count(results, fn {status, _} -> status == :ok end)
+    failed = total - succeeded
+
+    socket =
+      socket
+      |> assign(:buying, false)
+      |> assign(:buy_progress, nil)
+      |> assign(:selected, MapSet.new())
+
+    socket = do_reload_signals(socket, socket.assigns.filters)
+
+    socket =
+      cond do
+        failed == 0 ->
+          put_flash(socket, :info, "Successfully bought #{succeeded} signal(s)")
+
+        succeeded == 0 ->
+          put_flash(socket, :error, "All #{failed} orders failed")
+
+        true ->
+          put_flash(socket, :info, "Bought #{succeeded} signal(s), #{failed} failed")
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:buy_progress, n, total}, socket) do
+    {:noreply, assign(socket, :buy_progress, "Buying #{n}/#{total}...")}
+  end
+
   defp reload_signals(socket, filters) do
+    {:noreply, do_reload_signals(socket, filters)}
+  end
+
+  defp do_reload_signals(socket, filters) do
     signals = Queries.list_filtered_signals(filters)
     total_count = Queries.count_filtered_signals(filters)
 
-    {:noreply,
-     assign(socket,
-       filters: filters,
-       signals: signals,
-       total_count: total_count,
-       offset: 0
-     )}
+    assign(socket,
+      filters: filters,
+      signals: signals,
+      total_count: total_count,
+      offset: 0
+    )
   end
+
+  defp execute_orders_sequentially(selected_signals, total, _socket) do
+    selected_signals
+    |> Enum.with_index(1)
+    |> Enum.map(fn {row, n} ->
+      send(self(), {:buy_progress, n, total})
+
+      amount = row.station.buy_amount_usdc || 5.0
+
+      outcome = build_outcome(row)
+
+      case OrderManager.place_buy_order(row.signal.station_code, outcome, amount) do
+        {:ok, order} -> {:ok, order}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
+  defp build_outcome(row) do
+    token_id = find_token_id(row.cluster.outcomes, row.signal.outcome_label)
+
+    %{
+      "token_id" => token_id,
+      "outcome_label" => row.signal.outcome_label,
+      "price" => row.signal.market_price,
+      "market_cluster_id" => row.cluster.id,
+      "event_id" => row.cluster.event_slug,
+      "auto_order" => false
+    }
+  end
+
+  defp find_token_id(outcomes, outcome_label) when is_list(outcomes) do
+    case Enum.find(outcomes, fn o -> o["outcome_label"] == outcome_label || o["label"] == outcome_label end) do
+      %{"token_id" => token_id} -> token_id
+      _ -> nil
+    end
+  end
+
+  defp find_token_id(outcomes, outcome_label) when is_map(outcomes) do
+    case Map.get(outcomes, outcome_label) do
+      %{"token_id" => token_id} -> token_id
+      _ -> nil
+    end
+  end
+
+  defp find_token_id(_, _), do: nil
 
   defp maybe_update_stations(filters, %{"stations" => stations}) when is_list(stations) do
     %{filters | stations: stations}
