@@ -55,7 +55,7 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
         GammaClient.get_events(active: true, closed: false, limit: 50)
 
       tag_slug ->
-        GammaClient.get_events(active: true, closed: false, limit: 50, tag_slug: tag_slug)
+        GammaClient.get_events(active: true, closed: false, limit: 50, tag: tag_slug)
     end
   end
 
