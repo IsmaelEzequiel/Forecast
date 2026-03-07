@@ -33,6 +33,20 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   end
 
   defp run_auto_buy(station, cluster) do
+    # Check peak status — only auto-buy today's markets on confirmed/high confidence
+    {peak_status, _} = WeatherEdge.Timezone.PeakCalculator.peak_status(station.longitude)
+    confidence = WeatherEdge.Timezone.PeakCalculator.confidence(peak_status)
+
+    if confidence == :forecast and cluster.target_date == Date.utc_today() do
+      Logger.info(
+        "AutoBuyer: Skipping #{station.code} — pre-peak, forecast-only confidence"
+      )
+    else
+      run_auto_buy_execution(station, cluster)
+    end
+  end
+
+  defp run_auto_buy_execution(station, cluster) do
     with :ok <- fetch_and_store_forecasts(station, cluster.target_date),
          {:ok, distribution} <- Engine.compute_distribution(station.code, cluster.target_date) do
       {top_label, top_prob} = Distribution.top_outcome(distribution)

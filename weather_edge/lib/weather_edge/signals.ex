@@ -35,7 +35,8 @@ defmodule WeatherEdge.Signals do
           market_price: signal.market_yes_price,
           edge: signal.edge,
           recommended_side: signal.recommended_side,
-          alert_level: signal.alert_level
+          alert_level: signal.alert_level,
+          confidence: Map.get(signal, :confidence)
         }
 
         case create_signal(attrs) do

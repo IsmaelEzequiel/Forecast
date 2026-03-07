@@ -1,7 +1,12 @@
 defmodule WeatherEdge.Workers.MispricingWorker do
   @moduledoc """
-  Generates mispricing signals every 5 minutes by comparing forecast probability
-  distributions to current market prices for all active market clusters.
+  Generates mispricing signals by comparing forecast probability distributions
+  to current market prices for all active market clusters.
+
+  Uses timezone-aware scanning:
+  - Post-peak cities (observed high is final) get `confirmed` confidence
+  - Near-peak cities get `high` confidence
+  - Pre-peak cities get `forecast` confidence
   """
 
   use Oban.Worker, queue: :signals
@@ -13,6 +18,8 @@ defmodule WeatherEdge.Workers.MispricingWorker do
   alias WeatherEdge.Probability.Engine
   alias WeatherEdge.Signals
   alias WeatherEdge.Signals.{Alerter, Detector}
+  alias WeatherEdge.Stations
+  alias WeatherEdge.Timezone.PeakCalculator
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -20,9 +27,15 @@ defmodule WeatherEdge.Workers.MispricingWorker do
 
     Logger.info("MispricingWorker: Scanning #{length(clusters)} active cluster(s)")
 
-    # Pre-fetch observed highs for today's stations to avoid duplicate API calls
+    now = DateTime.utc_now()
     today = Date.utc_today()
 
+    # Load stations for longitude data
+    stations_map =
+      Stations.list_stations()
+      |> Enum.into(%{}, fn s -> {s.code, s} end)
+
+    # Pre-fetch observed highs for today's stations
     observed_highs =
       clusters
       |> Enum.filter(&(&1.target_date == today))
@@ -38,23 +51,52 @@ defmodule WeatherEdge.Workers.MispricingWorker do
         {code, high}
       end)
 
-    Enum.each(clusters, fn cluster ->
-      process_cluster(cluster, observed_highs)
+    # Group clusters by station to calculate peak status once per station
+    clusters
+    |> Enum.group_by(& &1.station_code)
+    |> Enum.each(fn {station_code, station_clusters} ->
+      station = Map.get(stations_map, station_code)
+
+      {peak_status, _hours} =
+        if station do
+          PeakCalculator.peak_status(station.longitude, now)
+        else
+          {:pre_peak, 6}
+        end
+
+      confidence = PeakCalculator.confidence(peak_status) |> Atom.to_string()
+
+      # Determine if we should scan this station now based on adaptive intervals
+      should_scan = should_scan_now?(peak_status, now)
+
+      if should_scan do
+        Enum.each(station_clusters, fn cluster ->
+          process_cluster(cluster, observed_highs, confidence, peak_status)
+        end)
+      else
+        Logger.debug(
+          "MispricingWorker: Skipping #{station_code} (#{peak_status}, next scan later)"
+        )
+      end
     end)
 
     :ok
   end
 
-  defp process_cluster(cluster, observed_highs) do
+  defp process_cluster(cluster, observed_highs, confidence, _peak_status) do
     # For today's markets, pass the observed high so the detector can skip resolved outcomes
     detector_opts =
       if cluster.target_date == Date.utc_today() do
+        base = [confidence: confidence]
+
         case Map.get(observed_highs, cluster.station_code) do
-          nil -> []
-          temp -> [observed_high_c: temp]
+          nil -> base
+          temp -> [{:observed_high_c, temp} | base]
         end
       else
-        []
+        # Future dates: use forecast confidence but boost if post-peak
+        # (post-peak for tomorrow's market means models have overnight data)
+        [confidence: confidence]
       end
 
     case Engine.compute_distribution(cluster.station_code, cluster.target_date) do
@@ -65,7 +107,8 @@ defmodule WeatherEdge.Workers.MispricingWorker do
             Alerter.broadcast_signals(cluster.station_code, signals, cluster.target_date, cluster.event_slug)
 
             Logger.info(
-              "MispricingWorker: #{length(signals)} signal(s) for #{cluster.station_code} event #{cluster.event_id}"
+              "MispricingWorker: #{length(signals)} signal(s) for #{cluster.station_code} " <>
+                "[#{confidence}] event #{cluster.event_id}"
             )
 
           {:ok, _signals, _flags} ->
@@ -87,5 +130,19 @@ defmodule WeatherEdge.Workers.MispricingWorker do
       Logger.error(
         "MispricingWorker: Error processing cluster #{cluster.id}: #{Exception.message(e)}"
       )
+  end
+
+  # Adaptive scanning: post-peak scans every run (every 5 min from cron),
+  # near-peak every run, pre-peak every other run, night every third run.
+  # Uses the minute of the hour to determine if this run should scan.
+  defp should_scan_now?(peak_status, now) do
+    minute = now.minute
+
+    case peak_status do
+      :post_peak -> true
+      :near_peak -> true
+      :pre_peak -> rem(minute, 10) < 5
+      :night -> rem(minute, 15) < 5
+    end
   end
 end

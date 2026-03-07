@@ -180,7 +180,11 @@ defmodule WeatherEdge.Stations do
     "CYOW" => "ottawa",
     "CYWG" => "winnipeg",
     "CYEG" => "edmonton",
-    "CYYC" => "calgary"
+    "CYYC" => "calgary",
+    "NZWN" => "wellington",
+    "NZAA" => "auckland",
+    "NZCH" => "christchurch",
+    "EDDM" => "munich"
   }
 
   defp city_to_slug(code, city) do
@@ -195,6 +199,9 @@ defmodule WeatherEdge.Stations do
     # Take only the part before "/" or "," (e.g. "Toronto/Pearson Intl, ON, CA" -> "Toronto")
     |> String.split(~r{[/,]}, parts: 2)
     |> List.first()
+    |> String.trim()
+    # Strip common airport suffixes that don't appear in Polymarket slugs
+    |> String.replace(~r/\s+(Intl|International|Airport|Arpt|Municipal|Regional|Metro|AFB)\b/i, "")
     |> String.trim()
     |> String.downcase()
     |> String.replace(~r/[^a-z0-9\s-]/, "")
@@ -247,7 +254,11 @@ defmodule WeatherEdge.Stations do
     "KDCA" => "washington-dc",
     "KIAD" => "washington-dc",
     "KLAS" => "las-vegas",
-    "KSAN" => "san-diego"
+    "KSAN" => "san-diego",
+    "NZWN" => "wellington",
+    "NZAA" => "auckland",
+    "NZCH" => "christchurch",
+    "EDDM" => "munich"
   }
 
   defp generate_tag_slug(code, city) do

@@ -10,13 +10,14 @@ defmodule WeatherEdge.Signals.Signal do
     field :edge, :float
     field :recommended_side, :string
     field :alert_level, :string
+    field :confidence, :string
 
     field :station_code, :string
     belongs_to :market_cluster, WeatherEdge.Markets.MarketCluster
   end
 
   @required_fields ~w(station_code market_cluster_id computed_at outcome_label model_probability market_price edge recommended_side)a
-  @optional_fields ~w(alert_level)a
+  @optional_fields ~w(alert_level confidence)a
 
   def changeset(signal, attrs) do
     signal

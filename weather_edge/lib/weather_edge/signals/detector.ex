@@ -15,6 +15,7 @@ defmodule WeatherEdge.Signals.Detector do
           edge: float(),
           recommended_side: String.t(),
           alert_level: String.t() | nil,
+          confidence: String.t(),
           liquidity: float()
         }
 
@@ -35,16 +36,17 @@ defmodule WeatherEdge.Signals.Detector do
       when is_list(outcomes) do
     flags = check_structural_mispricing(outcomes)
     observed_high_c = Keyword.get(opts, :observed_high_c)
+    confidence = Keyword.get(opts, :confidence, "forecast")
 
     signals =
       outcomes
-      |> Enum.map(fn outcome -> analyze_outcome(outcome, dist, observed_high_c, cluster) end)
+      |> Enum.map(fn outcome -> analyze_outcome(outcome, dist, observed_high_c, cluster, confidence) end)
       |> Enum.filter(fn signal -> signal != nil end)
 
     {:ok, signals, flags}
   end
 
-  defp analyze_outcome(outcome, dist, observed_high_c, cluster) do
+  defp analyze_outcome(outcome, dist, observed_high_c, cluster, confidence) do
     label = Map.get(outcome, "outcome_label", "")
     yes_price = Map.get(outcome, "yes_price", 0.0)
     no_price = Map.get(outcome, "no_price", 0.0)
@@ -83,6 +85,7 @@ defmodule WeatherEdge.Signals.Detector do
           edge: edge,
           recommended_side: side,
           alert_level: alert_level,
+          confidence: confidence,
           liquidity: liquidity
         }
       end

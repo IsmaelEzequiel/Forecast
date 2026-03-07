@@ -12,9 +12,15 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
     ~H"""
     <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-semibold text-zinc-900">
-          <%= @station.code %> — <%= @station.city %>
-        </h2>
+        <div class="flex items-center gap-2">
+          <h2 class="text-sm font-semibold text-zinc-900">
+            <%= @station.code %> — <%= @station.city %>
+          </h2>
+          <% {peak, _hrs} = WeatherEdge.Timezone.PeakCalculator.peak_status(@station.longitude) %>
+          <span class={["text-xs px-1.5 py-0.5 rounded-full font-medium", peak_class(peak)]}>
+            <%= peak_icon(peak) %> <%= WeatherEdge.Timezone.PeakCalculator.status_label(peak) %>
+          </span>
+        </div>
 
         <div class="flex items-center gap-3">
           <label class="flex items-center gap-1.5 text-xs">
@@ -123,4 +129,14 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
   end
 
   defp format_balance(_), do: "0.00"
+
+  defp peak_class(:post_peak), do: "bg-emerald-100 text-emerald-700"
+  defp peak_class(:near_peak), do: "bg-amber-100 text-amber-700"
+  defp peak_class(:pre_peak), do: "bg-sky-100 text-sky-700"
+  defp peak_class(:night), do: "bg-zinc-100 text-zinc-500"
+
+  defp peak_icon(:post_peak), do: "☀"
+  defp peak_icon(:near_peak), do: "⛅"
+  defp peak_icon(:pre_peak), do: "🌤"
+  defp peak_icon(:night), do: "🌙"
 end

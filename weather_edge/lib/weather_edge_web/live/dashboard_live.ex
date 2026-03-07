@@ -54,7 +54,8 @@ defmodule WeatherEdgeWeb.DashboardLive do
        modal_loading: false,
        modal_error: nil,
        modal_station_info: nil,
-       modal_temp_unit: "C"
+       modal_temp_unit: "C",
+       signal_filter: "all"
      )}
   end
 
@@ -283,6 +284,10 @@ defmodule WeatherEdgeWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_event("filter_signals", %{"filter" => filter}, socket) do
+    {:noreply, assign(socket, signal_filter: filter)}
+  end
+
   def handle_event("scan_station", %{"code" => code}, socket) do
     %{station_code: code}
     |> WeatherEdge.Workers.EventScannerWorker.new(queue: :scanner)
@@ -343,7 +348,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
         <p class="text-lg">No stations yet. Add one to get started.</p>
       </div>
 
-      <.signal_feed signals={@signals} />
+      <.signal_feed signals={@signals} filter={@signal_filter} />
 
       <.add_station_modal
         show={@show_add_station_modal}

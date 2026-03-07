@@ -2,19 +2,59 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
   use Phoenix.Component
 
   attr :signals, :list, required: true
+  attr :filter, :string, default: "all"
 
   def signal_feed(assigns) do
+    filtered =
+      case assigns.filter do
+        "all" ->
+          assigns.signals
+
+        "confirmed" ->
+          Enum.filter(assigns.signals, fn s -> get_confidence(s) == "confirmed" end)
+
+        "forecast" ->
+          Enum.filter(assigns.signals, fn s -> get_confidence(s) == "forecast" end)
+
+        "auto_buy" ->
+          Enum.filter(assigns.signals, fn s -> signal_type(s) == :auto_buy end)
+
+        level ->
+          Enum.filter(assigns.signals, fn s -> signal_alert_level(s) == level end)
+      end
+
+    assigns = assign(assigns, :filtered_signals, filtered)
+
     ~H"""
     <div class="rounded-lg border border-zinc-200 bg-white p-4">
-      <h3 class="text-sm font-semibold text-zinc-700 mb-3">Signal Feed</h3>
-
-      <div :if={@signals == []} class="text-sm text-zinc-400">
-        No signals yet. Mispricing signals will appear here in real-time.
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-zinc-700">Signal Feed</h3>
+        <div class="flex items-center gap-1">
+          <button
+            :for={{value, label, _color} <- filter_options()}
+            phx-click="filter_signals"
+            phx-value-filter={value}
+            class={[
+              "text-xs px-2 py-1 rounded-full font-medium transition-colors",
+              if(@filter == value, do: active_filter_class(value), else: "bg-zinc-100 text-zinc-500 hover:bg-zinc-200")
+            ]}
+          >
+            {label}
+          </button>
+        </div>
       </div>
 
-      <div :if={@signals != []} class="space-y-2 max-h-[600px] overflow-y-auto">
+      <div :if={@filtered_signals == []} class="text-sm text-zinc-400">
+        <%= if @filter == "all" do %>
+          No signals yet. Mispricing signals will appear here in real-time.
+        <% else %>
+          No signals matching this filter.
+        <% end %>
+      </div>
+
+      <div :if={@filtered_signals != []} class="space-y-2 max-h-[600px] overflow-y-auto">
         <div
-          :for={signal <- Enum.take(@signals, 50)}
+          :for={signal <- Enum.take(@filtered_signals, 50)}
           class={[
             "rounded-md border px-3 py-2 text-sm",
             signal_border_class(signal)
@@ -36,6 +76,9 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
               </span>
               <span class={["text-xs font-medium px-2 py-0.5 rounded-full", alert_badge_class(signal)]}>
                 {signal_alert_text(signal)}
+              </span>
+              <span class={["text-xs px-1.5 py-0.5 rounded", confidence_class(signal)]}>
+                {confidence_text(signal)}
               </span>
             </div>
           </div>
@@ -62,6 +105,53 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
       </div>
     </div>
     """
+  end
+
+  # --- Filters ---
+
+  defp filter_options do
+    [
+      {"all", "All", "zinc"},
+      {"confirmed", "Confirmed", "emerald"},
+      {"extreme", "Extreme", "red"},
+      {"strong", "Strong", "orange"},
+      {"opportunity", "Opportunity", "yellow"},
+      {"safe_no", "Safe NO", "green"},
+      {"auto_buy", "Auto-Buy", "indigo"}
+    ]
+  end
+
+  defp active_filter_class("all"), do: "bg-zinc-700 text-white"
+  defp active_filter_class("confirmed"), do: "bg-emerald-600 text-white"
+  defp active_filter_class("extreme"), do: "bg-red-600 text-white"
+  defp active_filter_class("strong"), do: "bg-orange-500 text-white"
+  defp active_filter_class("opportunity"), do: "bg-yellow-500 text-white"
+  defp active_filter_class("safe_no"), do: "bg-green-600 text-white"
+  defp active_filter_class("auto_buy"), do: "bg-indigo-600 text-white"
+  defp active_filter_class(_), do: "bg-zinc-700 text-white"
+
+  # --- Confidence ---
+
+  defp get_confidence(%WeatherEdge.Signals.Signal{confidence: c}), do: c
+  defp get_confidence(%{confidence: c}), do: c
+  defp get_confidence(_), do: nil
+
+  defp confidence_text(signal) do
+    case get_confidence(signal) do
+      "confirmed" -> "Confirmed"
+      "high" -> "High"
+      "forecast" -> "Forecast"
+      _ -> nil
+    end
+  end
+
+  defp confidence_class(signal) do
+    case get_confidence(signal) do
+      "confirmed" -> "bg-emerald-100 text-emerald-700 font-semibold"
+      "high" -> "bg-sky-100 text-sky-700"
+      "forecast" -> "bg-zinc-100 text-zinc-500"
+      _ -> "bg-zinc-50 text-zinc-400"
+    end
   end
 
   # --- Field access (handles both structs and maps) ---
