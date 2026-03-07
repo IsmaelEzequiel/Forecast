@@ -157,6 +157,13 @@ const server = http.createServer(async (req, res) => {
       const result = await placeOrder(token_id, side, price, size);
       console.log(`[${ts()}] Order result:`, JSON.stringify(result));
 
+      // SDK may return error objects instead of throwing
+      if (result && result.error) {
+        const status = result.status || 400;
+        res.writeHead(status);
+        return res.end(JSON.stringify({ error: result.error }));
+      }
+
       res.writeHead(200);
       return res.end(JSON.stringify({ ok: true, result }));
 
