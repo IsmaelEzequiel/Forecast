@@ -4,6 +4,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   alias WeatherEdge.PubSubHelper
   alias WeatherEdge.Signals.Queries
   alias WeatherEdge.Signals.DetailData
+  alias WeatherEdge.Signals.GroupedView
   alias WeatherEdge.Stations
   alias WeatherEdge.Markets
   alias WeatherEdge.Trading.OrderManager
@@ -71,14 +72,17 @@ defmodule WeatherEdgeWeb.SignalsLive do
       </div>
 
       <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
-        <%= if @view_mode == :table do %>
-          <.signals_table signals={@signals} selected={@selected} total_count={@total_count} />
-        <% else %>
-          <div class="p-4">
-            <p class="text-sm text-zinc-500 dark:text-zinc-400">
-              <%= @view_mode %> view | Showing <%= length(@signals) %> of <%= @total_count %> signals
-            </p>
-          </div>
+        <%= case @view_mode do %>
+          <% :table -> %>
+            <.signals_table signals={@signals} selected={@selected} total_count={@total_count} />
+          <% :grouped -> %>
+            <.grouped_view signals={@signals} />
+          <% _other -> %>
+            <div class="p-4">
+              <p class="text-sm text-zinc-500 dark:text-zinc-400">
+                <%= @view_mode %> view | Showing <%= length(@signals) %> of <%= @total_count %> signals
+              </p>
+            </div>
         <% end %>
       </div>
 
@@ -255,6 +259,146 @@ defmodule WeatherEdgeWeb.SignalsLive do
       </button>
     </div>
     """
+  end
+
+  defp grouped_view(assigns) do
+    groups = GroupedView.group_signals_by_event(assigns.signals)
+    assigns = assign(assigns, :groups, groups)
+
+    ~H"""
+    <div class="divide-y divide-zinc-200 dark:divide-zinc-700">
+      <div :if={@groups == []} class="p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+        No signals to group
+      </div>
+      <.grouped_card :for={group <- @groups} group={group} />
+    </div>
+    """
+  end
+
+  defp grouped_card(assigns) do
+    health_deviation = abs(assigns.group.cluster_health - 1.0)
+
+    assigns =
+      assigns
+      |> assign(:health_deviation, health_deviation)
+
+    ~H"""
+    <details class="group" open>
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+        <div class="flex items-center gap-3">
+          <span class="font-bold text-sm text-zinc-900 dark:text-zinc-100"><%= @group.station_code %></span>
+          <span class="text-xs text-zinc-500 dark:text-zinc-400"><%= @group.station.city %></span>
+          <span class="text-xs text-zinc-500 dark:text-zinc-400"><%= @group.cluster.target_date %></span>
+          <span class={["text-xs font-medium", if(@group.hours_to_resolution && @group.hours_to_resolution < 6, do: "text-red-600 dark:text-red-400", else: "text-zinc-600 dark:text-zinc-400")]}>
+            <%= if @group.hours_to_resolution, do: "#{@group.hours_to_resolution}h", else: "-" %>
+          </span>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+          <span class="text-zinc-500 dark:text-zinc-400"><%= @group.signal_count %> signals</span>
+          <svg class="w-4 h-4 text-zinc-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </summary>
+
+      <div class="px-4 pb-4 space-y-3">
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-zinc-500 dark:text-zinc-400">Cluster Health:</span>
+          <span class="font-medium text-zinc-700 dark:text-zinc-300">
+            &Sigma; YES = <%= :erlang.float_to_binary(@group.cluster_health * 1.0, decimals: 2) %>
+          </span>
+          <span :if={@health_deviation > 0.05} class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+            Deviation &gt; 5%
+          </span>
+        </div>
+
+        <div class="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-3 space-y-2">
+          <div class="text-[10px] font-semibold text-green-700 dark:text-green-400 uppercase tracking-wider">Best Play</div>
+          <.grouped_signal_row row={@group.best_play} highlight={true} />
+          <div class="text-xs text-zinc-500 dark:text-zinc-400">
+            Payout: $<%= format_payout(@group.best_play) %> | Return: <%= format_return_pct(@group.best_play) %>
+          </div>
+        </div>
+
+        <div :if={@group.hedge_options != []} class="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-3 space-y-2">
+          <div class="text-[10px] font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">Hedge Options</div>
+          <.grouped_signal_row :for={row <- @group.hedge_options} row={row} highlight={false} />
+        </div>
+
+        <div :if={@group.other_signals != []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 p-3 space-y-2">
+          <div class="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Other</div>
+          <.grouped_signal_row :for={row <- @group.other_signals} row={row} highlight={false} />
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button
+            phx-click="buy_best"
+            phx-value-signal-id={@group.best_play.signal.id}
+            class="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+          >
+            BUY BEST
+          </button>
+          <button
+            :if={@group.hedge_options != []}
+            phx-click="buy_best_hedge"
+            phx-value-best-id={@group.best_play.signal.id}
+            phx-value-hedge-id={hd(@group.hedge_options).signal.id}
+            class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+          >
+            BUY BEST + HEDGE
+          </button>
+          <button
+            phx-click="open_detail"
+            phx-value-id={@group.best_play.signal.id}
+            class="px-3 py-1.5 rounded-lg text-xs font-medium border border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+          >
+            VIEW FULL CLUSTER
+          </button>
+        </div>
+      </div>
+    </details>
+    """
+  end
+
+  defp grouped_signal_row(assigns) do
+    ~H"""
+    <div class={[
+      "flex items-center justify-between text-xs py-1",
+      if(@highlight, do: "font-medium", else: "")
+    ]}>
+      <div class="flex items-center gap-2">
+        <span class="text-zinc-700 dark:text-zinc-300"><%= @row.signal.outcome_label %></span>
+        <.action_badge side={@row.signal.recommended_side} position={@row.position} />
+        <span class={["px-1.5 py-0.5 rounded text-[10px] font-medium", alert_class(@row.signal.alert_level)]}>
+          <%= format_alert(@row.signal.alert_level) %>
+        </span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-zinc-500 dark:text-zinc-400">$<%= format_price(@row.signal.market_price) %></span>
+        <span class="text-zinc-500 dark:text-zinc-400"><%= format_pct(@row.signal.model_probability) %></span>
+        <span class={["font-bold", edge_color(@row.signal.edge)]}>
+          <%= format_edge(@row.signal.edge) %>
+        </span>
+      </div>
+    </div>
+    """
+  end
+
+  defp format_payout(row) do
+    amount = row.station.buy_amount_usdc || 5.0
+    market_price = row.signal.market_price || 0.01
+    tokens = if market_price > 0, do: amount / market_price, else: 0.0
+    payout = tokens * 1.0 - amount
+    :erlang.float_to_binary(payout, decimals: 2)
+  end
+
+  defp format_return_pct(row) do
+    amount = row.station.buy_amount_usdc || 5.0
+    market_price = row.signal.market_price || 0.01
+    tokens = if market_price > 0, do: amount / market_price, else: 0.0
+    payout = tokens * 1.0
+    return_pct = if amount > 0, do: (payout - amount) / amount * 100, else: 0.0
+    format_return(return_pct)
   end
 
   defp resolves_cell(assigns) do
@@ -1073,6 +1217,40 @@ defmodule WeatherEdgeWeb.SignalsLive do
     end
   end
 
+  def handle_event("buy_best", %{"signal-id" => signal_id_str}, socket) do
+    signal_id = String.to_integer(signal_id_str)
+
+    case find_signal_row(socket.assigns.signals, signal_id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Signal not found")}
+
+      row ->
+        execute_single_buy(socket, row)
+    end
+  end
+
+  def handle_event("buy_best_hedge", %{"best-id" => best_id_str, "hedge-id" => hedge_id_str}, socket) do
+    best_id = String.to_integer(best_id_str)
+    hedge_id = String.to_integer(hedge_id_str)
+    signals = socket.assigns.signals
+
+    best_row = find_signal_row(signals, best_id)
+    hedge_row = find_signal_row(signals, hedge_id)
+
+    cond do
+      best_row == nil or hedge_row == nil ->
+        {:noreply, put_flash(socket, :error, "Signal not found")}
+
+      true ->
+        send(self(), {:execute_buy_batch, [best_row, hedge_row]})
+
+        {:noreply,
+         socket
+         |> assign(:buying, true)
+         |> assign(:buy_progress, "Preparing...")}
+    end
+  end
+
   def handle_event("load_more", _params, socket) do
     new_offset = socket.assigns.offset + 20
 
@@ -1149,6 +1327,26 @@ defmodule WeatherEdgeWeb.SignalsLive do
       total_count: total_count,
       offset: 0
     )
+  end
+
+  defp find_signal_row(signals, signal_id) do
+    Enum.find(signals, fn row -> row.signal.id == signal_id end)
+  end
+
+  defp execute_single_buy(socket, row) do
+    amount = row.station.buy_amount_usdc || 5.0
+    outcome = build_outcome(row)
+
+    case OrderManager.place_buy_order(row.signal.station_code, outcome, amount) do
+      {:ok, _order} ->
+        socket = do_reload_signals(socket, socket.assigns.filters)
+
+        {:noreply,
+         put_flash(socket, :info, "Order placed for #{row.signal.outcome_label} ($#{format_price(amount)})")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Order failed: #{inspect(reason)}")}
+    end
   end
 
   defp execute_orders_sequentially(selected_signals, total, _socket) do
