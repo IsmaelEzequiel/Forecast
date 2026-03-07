@@ -1041,8 +1041,9 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
     chart_data =
       if has_data do
-        times = Enum.map(assigns.price_history, fn h -> Calendar.strftime(h.time, "%H:%M") end)
-        prices = Enum.map(assigns.price_history, fn h -> Float.round(h.yes_price * 1.0, 4) end)
+        valid_history = Enum.reject(assigns.price_history, fn h -> is_nil(h.yes_price) or is_nil(h.time) end)
+        times = Enum.map(valid_history, fn h -> Calendar.strftime(h.time, "%H:%M") end)
+        prices = Enum.map(valid_history, fn h -> Float.round(h.yes_price * 1.0, 4) end)
 
         buy_price =
           if assigns.position, do: assigns.position.avg_buy_price
