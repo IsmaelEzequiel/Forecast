@@ -915,6 +915,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
               station={@detail_data.station}
               cluster={@detail_data.cluster}
               detail_buy_amount={@detail_buy_amount}
+              buying={@buying}
             />
 
             <.polymarket_link cluster={@detail_data.cluster} />
