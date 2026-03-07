@@ -12,7 +12,8 @@ defmodule WeatherEdge.Workers.BalanceWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    case DataClient.get_balance() do
+    # Prefer sidecar balance (synced via /sync endpoint), fall back to Data API
+    case get_balance() do
       {:ok, balance} ->
         PubSubHelper.broadcast(
           PubSubHelper.portfolio_balance_update(),
@@ -26,5 +27,12 @@ defmodule WeatherEdge.Workers.BalanceWorker do
     end
 
     :ok
+  end
+
+  defp get_balance do
+    case :persistent_term.get(:sidecar_balance, nil) do
+      balance when is_number(balance) -> {:ok, balance}
+      _ -> DataClient.get_balance()
+    end
   end
 end

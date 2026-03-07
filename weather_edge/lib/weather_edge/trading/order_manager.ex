@@ -122,7 +122,7 @@ defmodule WeatherEdge.Trading.OrderManager do
   defp validate_balance(amount) do
     min_reserve = trading_config()[:min_reserve_usdc] || 2.0
 
-    case data_client().get_balance() do
+    case get_balance() do
       {:ok, balance} when balance >= amount + min_reserve ->
         :ok
 
@@ -133,6 +133,15 @@ defmodule WeatherEdge.Trading.OrderManager do
       {:error, reason} ->
         Logger.warning("Balance check failed: #{inspect(reason)}")
         {:error, {:balance_check_failed, reason}}
+    end
+  end
+
+  # Read balance from sidecar's persistent_term (synced via /sync endpoint).
+  # Falls back to DataClient API if sidecar hasn't synced yet.
+  defp get_balance do
+    case :persistent_term.get(:sidecar_balance, nil) do
+      balance when is_number(balance) -> {:ok, balance}
+      _ -> data_client().get_balance()
     end
   end
 
