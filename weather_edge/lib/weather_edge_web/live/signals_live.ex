@@ -1256,16 +1256,18 @@ defmodule WeatherEdgeWeb.SignalsLive do
           <button
             phx-click="buy_from_detail"
             phx-value-side="YES"
-            class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-green-600 hover:bg-green-700 text-white transition-colors"
+            disabled={@buying}
+            class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-green-600 hover:bg-green-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            BUY YES
+            <%= if @buying, do: "Placing...", else: "BUY YES" %>
           </button>
           <button
             phx-click="buy_from_detail"
             phx-value-side="NO"
-            class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+            disabled={@buying}
+            class="flex-1 px-3 py-2 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            BUY NO
+            <%= if @buying, do: "Placing...", else: "BUY NO" %>
           </button>
         </div>
       </div>
@@ -1435,33 +1437,50 @@ defmodule WeatherEdgeWeb.SignalsLive do
       signal = detail_data.signal
       cluster = detail_data.cluster
       station = detail_data.station
-      default_amount = station.buy_amount_usdc || 5.0
+      default_amount = station.buy_amount_usdc || 1.0
       amount = socket.assigns.detail_buy_amount || default_amount
 
       token_id = find_token_id(cluster.outcomes, signal.outcome_label)
 
-      outcome = %{
-        "token_id" => token_id,
-        "outcome_label" => signal.outcome_label,
-        "price" => signal.market_price,
-        "market_cluster_id" => cluster.id,
-        "event_id" => cluster.event_slug,
-        "auto_order" => false
-      }
+      if is_nil(token_id) do
+        {:noreply, put_flash(socket, :error, "No token ID found for #{signal.outcome_label}")}
+      else
+        outcome = %{
+          "token_id" => token_id,
+          "outcome_label" => signal.outcome_label,
+          "price" => signal.market_price,
+          "market_cluster_id" => cluster.id,
+          "event_id" => cluster.event_slug,
+          "auto_order" => false
+        }
 
-      case OrderManager.place_buy_order(signal.station_code, outcome, amount) do
-        {:ok, _order} ->
-          updated_detail = DetailData.fetch_signal_detail(signal.id)
+        # Run async to avoid blocking LiveView (OrderManager has 30s retry)
+        lv = self()
+        Task.start(fn ->
+          result = OrderManager.place_buy_order(signal.station_code, outcome, amount)
+          send(lv, {:detail_buy_result, side, signal, amount, result})
+        end)
 
-          {:noreply,
-           socket
-           |> put_flash(:info, "#{side} order placed for #{signal.outcome_label} ($#{format_price(amount)})")
-           |> assign(:detail_data, updated_detail)
-           |> then(&do_reload_signals(&1, &1.assigns.filters))}
-
-        {:error, reason} ->
-          {:noreply, put_flash(socket, :error, "Order failed: #{inspect(reason)}")}
+        {:noreply, assign(socket, :buying, true)}
       end
+    end
+  end
+
+  def handle_info({:detail_buy_result, side, signal, amount, result}, socket) do
+    socket = assign(socket, :buying, false)
+
+    case result do
+      {:ok, _order} ->
+        updated_detail = DetailData.fetch_signal_detail(signal.id)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "#{side} order placed for #{signal.outcome_label} ($#{format_price(amount)})")
+         |> assign(:detail_data, updated_detail)
+         |> then(&do_reload_signals(&1, &1.assigns.filters))}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Order failed: #{inspect(reason)}")}
     end
   end
 
@@ -1717,6 +1736,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
   defp find_token_id(outcomes, outcome_label) when is_list(outcomes) do
     case Enum.find(outcomes, fn o -> o["outcome_label"] == outcome_label || o["label"] == outcome_label end) do
       %{"token_id" => token_id} -> token_id
+      %{"clob_token_ids" => [yes_token | _]} -> yes_token
+      %{"clob_token_ids" => token} when is_binary(token) -> token
       _ -> nil
     end
   end
@@ -1724,6 +1745,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   defp find_token_id(outcomes, outcome_label) when is_map(outcomes) do
     case Map.get(outcomes, outcome_label) do
       %{"token_id" => token_id} -> token_id
+      %{"clob_token_ids" => [yes_token | _]} -> yes_token
       _ -> nil
     end
   end
