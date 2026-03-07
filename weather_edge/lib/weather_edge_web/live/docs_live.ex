@@ -30,6 +30,9 @@ defmodule WeatherEdgeWeb.DocsLive do
           <li><a href="#station-detail" class="hover:underline">Station Detail Page</a></li>
           <li><a href="#signal-feed" class="hover:underline">Signal Feed</a></li>
           <li><a href="#alert-levels" class="hover:underline">Alert Levels</a></li>
+          <li><a href="#confidence" class="hover:underline">Confidence Levels</a></li>
+          <li><a href="#peak-status" class="hover:underline">Peak Status &amp; Timezone Strategy</a></li>
+          <li><a href="#observed-temp" class="hover:underline">Observed Temperature Override</a></li>
           <li><a href="#workers" class="hover:underline">Background Workers</a></li>
           <li><a href="#architecture" class="hover:underline">Architecture Overview</a></li>
         </ol>
@@ -59,6 +62,10 @@ defmodule WeatherEdgeWeb.DocsLive do
               Opens a modal to add a new weather station by ICAO code (e.g., KJFK, EGLL, SBSP).
               You choose the temperature unit (Celsius or Fahrenheit) during setup.
             </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Docs</dt>
+            <dd class="text-zinc-500 ml-4">Opens this documentation page.</dd>
           </div>
         </dl>
       </section>
@@ -96,7 +103,8 @@ defmodule WeatherEdgeWeb.DocsLive do
             <dt class="font-semibold text-zinc-700">Today's Realized</dt>
             <dd class="text-zinc-500 ml-4">
               Sum of <code class="text-xs bg-zinc-100 px-1 rounded">realized_pnl</code> for positions closed today.
-              This is actual profit/loss from settled or sold positions.
+              Positions are auto-reconciled: when a position disappears from Polymarket
+              (sold or resolved), it is automatically marked closed with realized P&amp;L.
             </dd>
           </div>
           <div>
@@ -123,17 +131,31 @@ defmodule WeatherEdgeWeb.DocsLive do
             <dd class="text-zinc-500 ml-4">Resolved city name from the METAR validation API.</dd>
           </div>
           <div>
+            <dt class="font-semibold text-zinc-700">Peak Status Badge</dt>
+            <dd class="text-zinc-500 ml-4">
+              Shows the current solar peak status for this station based on its longitude:
+              <ul class="list-disc ml-4 mt-1 space-y-1">
+                <li><strong>Pre-Peak</strong> (sky blue) &mdash; Before noon local solar time. Temperature still rising.</li>
+                <li><strong>Near Peak</strong> (amber) &mdash; 12:00-16:00 local. Peak sun hours, temp may still climb.</li>
+                <li><strong>Post-Peak</strong> (green) &mdash; After 16:00 local. Daily high is locked in. Best time to trade.</li>
+                <li><strong>Night</strong> (gray) &mdash; Nighttime. Observed high is final.</li>
+              </ul>
+            </dd>
+          </div>
+          <div>
             <dt class="font-semibold text-zinc-700">Monitoring (toggle)</dt>
             <dd class="text-zinc-500 ml-4">
               Enables/disables the mispricing detection pipeline for this station.
-              When ON, the system scans for edge opportunities every 5 minutes.
+              Scan frequency adapts to peak status: every run for post-peak, every other for pre-peak.
             </dd>
           </div>
           <div>
             <dt class="font-semibold text-zinc-700">Auto-Buy (toggle)</dt>
             <dd class="text-zinc-500 ml-4">
               When ON, the system automatically places buy orders on Polymarket when
-              strong enough mispricings are detected. Requires monitoring to also be enabled.
+              strong enough mispricings are detected. For today's markets, auto-buy only
+              triggers on confirmed/high confidence signals (post-peak or near-peak).
+              Pre-peak forecast-only signals are skipped.
             </dd>
           </div>
           <div>
@@ -213,8 +235,15 @@ defmodule WeatherEdgeWeb.DocsLive do
         <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">5. Station Detail Page</h2>
         <p class="text-sm text-zinc-500">
           Accessed by clicking an event card. Shows detailed analysis for a specific station + event.
+          Includes an "Open on Polymarket" button to view the market directly.
         </p>
         <dl class="space-y-2 text-sm">
+          <div>
+            <dt class="font-semibold text-zinc-700">Open on Polymarket</dt>
+            <dd class="text-zinc-500 ml-4">
+              Blue button that opens the Polymarket event page in a new tab for manual trading.
+            </dd>
+          </div>
           <div>
             <dt class="font-semibold text-zinc-700">Observed High</dt>
             <dd class="text-zinc-500 ml-4">
@@ -230,7 +259,7 @@ defmodule WeatherEdgeWeb.DocsLive do
                 <li><strong>Outcome</strong> &mdash; Temperature label (e.g., "28C or higher", "25-26C")</li>
                 <li><strong>Model</strong> &mdash; Probability from the multi-model forecast ensemble (0-100%)</li>
                 <li><strong>Market</strong> &mdash; Current YES price on Polymarket (0-100%)</li>
-                <li><strong>Bar</strong> &mdash; Visual bar comparing model (blue) vs market (red outline)</li>
+                <li><strong>Bar</strong> &mdash; Visual bar comparing model (blue) vs market (amber)</li>
                 <li><strong>Edge</strong> &mdash; Model minus Market. Positive = model thinks more likely than market prices.
                   Green for positive edge, red for negative.</li>
               </ul>
@@ -254,6 +283,27 @@ defmodule WeatherEdgeWeb.DocsLive do
               </ul>
             </dd>
           </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Orderbook</dt>
+            <dd class="text-zinc-500 ml-4">
+              Shows best bid/ask prices and spread for the top outcome or your held position.
+              Loads automatically even without a position using the cluster's most active outcome.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Positions</dt>
+            <dd class="text-zinc-500 ml-4">
+              Shows all open positions for this event from the DB. Displays outcome, tokens, avg price,
+              current price, and unrealized P&amp;L.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Polymarket Positions</dt>
+            <dd class="text-zinc-500 ml-4">
+              Positions fetched directly from Polymarket via the sidecar. Shows positions that may not
+              be in the DB (e.g., bought directly on Polymarket). Displays size, avg price, current price, and P&amp;L.
+            </dd>
+          </div>
         </dl>
       </section>
 
@@ -261,9 +311,30 @@ defmodule WeatherEdgeWeb.DocsLive do
       <section id="signal-feed" class="space-y-3">
         <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">6. Signal Feed</h2>
         <p class="text-sm text-zinc-500">
-          The real-time feed of mispricing signals on the dashboard. Each signal row shows:
+          The real-time feed of mispricing signals on the dashboard. Shows 20 signals at a time
+          with a "Show more" button to load additional results. Each signal row shows:
         </p>
         <dl class="space-y-2 text-sm">
+          <div>
+            <dt class="font-semibold text-zinc-700">Filter Buttons</dt>
+            <dd class="text-zinc-500 ml-4">
+              Filter signals by type. Available filters:
+              <span class="font-mono text-xs">All</span>,
+              <span class="font-mono text-xs">Confirmed</span> (post-peak observations),
+              <span class="font-mono text-xs">Extreme</span>,
+              <span class="font-mono text-xs">Strong</span>,
+              <span class="font-mono text-xs">Opportunity</span>,
+              <span class="font-mono text-xs">Safe NO</span>,
+              <span class="font-mono text-xs">Auto-Buy</span>.
+              Active filter is highlighted with its color.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Signal Count</dt>
+            <dd class="text-zinc-500 ml-4">
+              Shows how many signals are visible and total available (e.g., "20 of 87").
+            </dd>
+          </div>
           <div>
             <dt class="font-semibold text-zinc-700">Timestamp</dt>
             <dd class="text-zinc-500 ml-4">
@@ -303,6 +374,23 @@ defmodule WeatherEdgeWeb.DocsLive do
             </dd>
           </div>
           <div>
+            <dt class="font-semibold text-zinc-700">Alert Level Badge</dt>
+            <dd class="text-zinc-500 ml-4">
+              Color-coded badge showing signal strength: Safe NO, Opportunity, Strong, Extreme, or Auto-Buy.
+              See <a href="#alert-levels" class="text-blue-600 hover:underline">Alert Levels</a> below.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Confidence Badge</dt>
+            <dd class="text-zinc-500 ml-4">
+              Shows how reliable the signal is based on the station's peak status:
+              <span class="font-semibold text-emerald-700">Confirmed</span>,
+              <span class="font-semibold text-sky-700">High</span>, or
+              <span class="text-zinc-500">Forecast</span>.
+              See <a href="#confidence" class="text-blue-600 hover:underline">Confidence Levels</a> below.
+            </dd>
+          </div>
+          <div>
             <dt class="font-semibold text-zinc-700">Market Price</dt>
             <dd class="text-zinc-500 ml-4">
               Current YES price on Polymarket (e.g., $0.45 = 45% implied probability).
@@ -327,6 +415,13 @@ defmodule WeatherEdgeWeb.DocsLive do
             <dt class="font-semibold text-zinc-700">Open (link)</dt>
             <dd class="text-zinc-500 ml-4">
               Direct link to the Polymarket event page where you can manually place a trade.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Show more</dt>
+            <dd class="text-zinc-500 ml-4">
+              Loads 20 more signals. Shows remaining count (e.g., "67 remaining").
+              Fetches from DB when needed. Disappears when all signals are shown.
             </dd>
           </div>
         </dl>
@@ -354,7 +449,7 @@ defmodule WeatherEdgeWeb.DocsLive do
             <div>
               <span class="font-bold text-yellow-800">Opportunity</span>
               <span class="text-zinc-500 ml-2">
-                Moderate positive edge. Model sees value the market hasn't priced in yet.
+                Moderate positive edge (&ge; 8%). Model sees value the market hasn't priced in yet.
                 Worth monitoring but not a strong conviction trade.
               </span>
             </div>
@@ -364,7 +459,7 @@ defmodule WeatherEdgeWeb.DocsLive do
             <div>
               <span class="font-bold text-orange-800">Strong</span>
               <span class="text-zinc-500 ml-2">
-                Large positive edge. The model's probability significantly exceeds the market price.
+                Large positive edge (&ge; 15%). The model's probability significantly exceeds the market price.
                 High-conviction signal.
               </span>
             </div>
@@ -374,8 +469,8 @@ defmodule WeatherEdgeWeb.DocsLive do
             <div>
               <span class="font-bold text-red-800">Extreme</span>
               <span class="text-zinc-500 ml-2">
-                Very large positive edge. The market is heavily mispriced according to the model.
-                Strongest signal &mdash; auto-buy will trigger if enabled.
+                Very large positive edge (&ge; 25%). The market is heavily mispriced according to the model.
+                Strongest signal &mdash; auto-buy will trigger if enabled and confidence is sufficient.
               </span>
             </div>
           </div>
@@ -385,16 +480,139 @@ defmodule WeatherEdgeWeb.DocsLive do
               <span class="font-bold text-indigo-800">Auto-Buy</span>
               <span class="text-zinc-500 ml-2">
                 An automatic buy order was placed and executed by the system.
-                Only happens when both monitoring and auto-buy are enabled for the station.
+                Only happens when monitoring + auto-buy are enabled and confidence is confirmed or high.
               </span>
             </div>
           </div>
         </div>
       </section>
 
-      <%!-- 8. WORKERS --%>
+      <%!-- 8. CONFIDENCE LEVELS --%>
+      <section id="confidence" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">8. Confidence Levels</h2>
+        <p class="text-sm text-zinc-500">
+          Each signal has a confidence level based on the station's solar peak status.
+          This indicates how reliable the signal data is:
+        </p>
+        <div class="space-y-2 text-sm">
+          <div class="flex items-center gap-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2">
+            <span class="inline-block px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-semibold text-xs">Confirmed</span>
+            <span class="text-zinc-500">
+              Post-peak or night. The observed high temperature is final. Signals are backed by
+              actual METAR observations, not just forecasts. <strong>Safest to trade on.</strong>
+              Auto-buy will execute on these signals.
+            </span>
+          </div>
+          <div class="flex items-center gap-3 rounded-md border border-sky-300 bg-sky-50 px-3 py-2">
+            <span class="inline-block px-2 py-0.5 rounded bg-sky-100 text-sky-700 text-xs font-medium">High</span>
+            <span class="text-zinc-500">
+              Near peak (12:00-16:00 local). Temperature may still rise slightly but is close to
+              the daily maximum. Observations are near-final. Auto-buy will execute on these signals.
+            </span>
+          </div>
+          <div class="flex items-center gap-3 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+            <span class="inline-block px-2 py-0.5 rounded bg-zinc-100 text-zinc-500 text-xs">Forecast</span>
+            <span class="text-zinc-500">
+              Pre-peak (before noon local). Based on weather model forecasts only &mdash; no observed
+              data yet. Higher uncertainty. Auto-buy is <strong>disabled</strong> for today's markets
+              at this confidence level.
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <%!-- 9. PEAK STATUS --%>
+      <section id="peak-status" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">9. Peak Status &amp; Timezone Strategy</h2>
+        <p class="text-sm text-zinc-500">
+          Temperature markets resolve based on the daily high, which typically occurs between
+          12:00-15:00 local solar time. WeatherEdge uses each station's longitude to calculate
+          solar time and determine peak status.
+        </p>
+        <div class="space-y-2 text-sm">
+          <div class="flex items-center gap-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
+            <span class="text-lg">🌤</span>
+            <div>
+              <span class="font-bold text-sky-800">Pre-Peak</span>
+              <span class="text-zinc-500 ml-2">
+                06:00-12:00 local. Temperature is still rising. Only forecast models available.
+                Scanned less frequently (every 10 minutes).
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+            <span class="text-lg">⛅</span>
+            <div>
+              <span class="font-bold text-amber-800">Near Peak</span>
+              <span class="text-zinc-500 ml-2">
+                12:00-16:00 local. Peak sun hours. Temperature approaching daily maximum.
+                Scanned every run (every 5 minutes).
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+            <span class="text-lg">☀</span>
+            <div>
+              <span class="font-bold text-emerald-800">Post-Peak</span>
+              <span class="text-zinc-500 ml-2">
+                16:00-06:00 local. Daily high is locked in. Observed temperature is the final answer.
+                Scanned every run. <strong>Best time to trade &mdash; highest confidence signals.</strong>
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+            <span class="text-lg">🌙</span>
+            <div>
+              <span class="font-bold text-zinc-700">Night</span>
+              <span class="text-zinc-500 ml-2">
+                Same as post-peak for trading purposes. The high is final.
+                Scanned less frequently (every 15 minutes).
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+          <strong>Timezone advantage:</strong> From Maceió (UTC-3), your morning is post-peak
+          for Asia/Oceania. Your midday is post-peak for Europe. Your afternoon is near-peak for US East.
+          The system automatically prioritizes scanning cities where the outcome is already determined.
+        </div>
+      </section>
+
+      <%!-- 10. OBSERVED TEMP --%>
+      <section id="observed-temp" class="space-y-3">
+        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">10. Observed Temperature Override</h2>
+        <p class="text-sm text-zinc-500">
+          For today's markets, the system fetches the actual observed high temperature from METAR
+          and uses it to override weather model probabilities. This prevents bad signals like
+          recommending "BUY NO" on a temperature that has already been reached.
+        </p>
+        <dl class="space-y-2 text-sm">
+          <div>
+            <dt class="font-semibold text-zinc-700">Market-confirmed filter</dt>
+            <dd class="text-zinc-500 ml-4">
+              If an outcome's YES price is &ge; 95% and observed data exists, the outcome is
+              considered settled. No signals are generated against it.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Observed overrides</dt>
+            <dd class="text-zinc-500 ml-4">
+              <ul class="list-disc ml-4 space-y-1">
+                <li><strong>"27C or higher"</strong> + observed 27°C &rarr; resolved YES (100%)</li>
+                <li><strong>"25C or below"</strong> + observed 27°C &rarr; resolved NO (0%)</li>
+                <li><strong>"84-85F"</strong> + observed 84°F &rarr; resolved YES (in range)</li>
+                <li><strong>"84-85F"</strong> + observed 86°F &rarr; resolved NO (above range)</li>
+                <li><strong>"27C"</strong> + observed 27°C &rarr; resolved YES (exact match)</li>
+                <li><strong>"26C"</strong> + observed 28°C &rarr; resolved NO (exceeded)</li>
+              </ul>
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <%!-- 11. WORKERS --%>
       <section id="workers" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">8. Background Workers</h2>
+        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">11. Background Workers</h2>
         <p class="text-sm text-zinc-500">
           Oban-powered jobs that run automatically:
         </p>
@@ -410,8 +628,11 @@ defmodule WeatherEdgeWeb.DocsLive do
           <div>
             <dt class="font-semibold text-zinc-700">MispricingWorker</dt>
             <dd class="text-zinc-500 ml-4">
-              Runs every 5 minutes. Compares forecast probability distributions to Polymarket prices.
-              Generates signals when edge exceeds thresholds. Stores in DB and broadcasts via PubSub.
+              Cron runs every 5 minutes. Uses timezone-aware adaptive scanning:
+              post-peak and near-peak stations are scanned every run, pre-peak every other run,
+              night stations every third run. Compares forecast distributions to market prices,
+              applies observed temperature overrides for today's markets, and tags each signal
+              with a confidence level.
             </dd>
           </div>
           <div>
@@ -425,7 +646,9 @@ defmodule WeatherEdgeWeb.DocsLive do
             <dt class="font-semibold text-zinc-700">AutoBuyerWorker</dt>
             <dd class="text-zinc-500 ml-4">
               Executes buy orders through the Node.js sidecar when strong signals are detected
-              and the station has auto-buy enabled. Respects max buy price and amount limits.
+              and the station has auto-buy enabled. For today's markets, only executes on
+              confirmed or high confidence signals (post-peak/near-peak). Pre-peak forecast-only
+              signals are skipped to avoid risky trades.
             </dd>
           </div>
           <div>
@@ -435,12 +658,21 @@ defmodule WeatherEdgeWeb.DocsLive do
               Updates position current prices for P&amp;L tracking.
             </dd>
           </div>
+          <div>
+            <dt class="font-semibold text-zinc-700">Position Reconciliation</dt>
+            <dd class="text-zinc-500 ml-4">
+              Runs on every sidecar sync (~30s). Compares Polymarket open positions with DB positions.
+              When a DB "open" position is no longer on Polymarket (sold or resolved), it is
+              automatically marked as closed with calculated realized P&amp;L. This powers the
+              Today's Realized and Total Realized metrics.
+            </dd>
+          </div>
         </dl>
       </section>
 
-      <%!-- 9. ARCHITECTURE --%>
+      <%!-- 12. ARCHITECTURE --%>
       <section id="architecture" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">9. Architecture Overview</h2>
+        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">12. Architecture Overview</h2>
         <div class="text-sm text-zinc-500 space-y-3">
           <p>
             <strong class="text-zinc-700">Phoenix LiveView App</strong> &mdash;
@@ -453,6 +685,13 @@ defmodule WeatherEdgeWeb.DocsLive do
             Handles EIP-712 cryptographic signing for authenticated operations
             (placing orders, checking balances, syncing positions).
             The Elixir app calls the sidecar via HTTP for all trading operations.
+            Syncs balance and positions every 30 seconds, triggering position reconciliation.
+          </p>
+          <p>
+            <strong class="text-zinc-700">PeakCalculator</strong> &mdash;
+            Uses station longitude to calculate local solar time and determine peak status.
+            Every 15° of longitude = 1 hour UTC offset. Drives adaptive scan intervals,
+            signal confidence levels, and auto-buy gating.
           </p>
           <p>
             <strong class="text-zinc-700">Data Flow</strong>:
@@ -460,10 +699,12 @@ defmodule WeatherEdgeWeb.DocsLive do
           <ol class="list-decimal list-inside ml-4 space-y-1">
             <li>EventScannerWorker discovers new Polymarket temperature events</li>
             <li>ForecastRefreshWorker fetches multi-model weather forecasts</li>
-            <li>MispricingWorker computes probability distributions and compares to market prices</li>
-            <li>Signals are stored, broadcast via PubSub, and shown in the Signal Feed</li>
-            <li>AutoBuyerWorker (if enabled) executes trades through the sidecar</li>
+            <li>MispricingWorker calculates peak status per station, fetches observed highs for today</li>
+            <li>Detector compares distributions to market prices, applies observed overrides, assigns confidence</li>
+            <li>Signals are stored with confidence, broadcast via PubSub, shown in the Signal Feed</li>
+            <li>AutoBuyerWorker (if enabled) executes trades only on confirmed/high confidence signals</li>
             <li>PriceSnapshotWorker tracks position performance over time</li>
+            <li>Sidecar sync reconciles positions, updating realized P&amp;L when positions close</li>
           </ol>
           <p>
             <strong class="text-zinc-700">Probability Engine</strong> &mdash;
