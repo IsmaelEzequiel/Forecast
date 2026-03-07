@@ -4,6 +4,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   alias WeatherEdge.PubSubHelper
   alias WeatherEdge.Signals.Queries
   alias WeatherEdge.Stations
+  alias WeatherEdge.Markets
 
   import WeatherEdgeWeb.Components.HeaderComponent
 
@@ -44,7 +45,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
        detail_signal_id: nil,
        balance: cached_balance,
        wallet_address: wallet_address,
-       station_codes: station_codes
+       station_codes: station_codes,
+       offset: 0
      )}
   end
 
@@ -61,12 +63,173 @@ defmodule WeatherEdgeWeb.SignalsLive do
         </div>
       </div>
 
-      <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
-        <p class="text-sm text-zinc-500 dark:text-zinc-400">
-          Signals content area - <%= @view_mode %> view | Showing <%= length(@signals) %> of <%= @total_count %> signals
-        </p>
+      <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
+        <%= if @view_mode == :table do %>
+          <.signals_table signals={@signals} selected={@selected} total_count={@total_count} />
+        <% else %>
+          <div class="p-4">
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">
+              <%= @view_mode %> view | Showing <%= length(@signals) %> of <%= @total_count %> signals
+            </p>
+          </div>
+        <% end %>
       </div>
     </div>
+    """
+  end
+
+  defp signals_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
+            <th class="px-3 py-2 w-8"></th>
+            <th class="px-3 py-2">Time</th>
+            <th class="px-3 py-2">Station</th>
+            <th class="px-3 py-2">Temp</th>
+            <th class="px-3 py-2">Resolves</th>
+            <th class="px-3 py-2">Action</th>
+            <th class="px-3 py-2">Alert</th>
+            <th class="px-3 py-2">Confidence</th>
+            <th class="px-3 py-2">Market</th>
+            <th class="px-3 py-2">Model</th>
+            <th class="px-3 py-2">Edge</th>
+            <th class="px-3 py-2">Volume</th>
+            <th class="px-3 py-2">Trend</th>
+            <th class="px-3 py-2">Pos?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            :for={row <- @signals}
+            phx-click="open_detail"
+            phx-value-id={row.signal.id}
+            class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors"
+          >
+            <td class="px-3 py-2">
+              <input
+                type="checkbox"
+                checked={MapSet.member?(@selected, row.signal.id)}
+                phx-click="toggle_select"
+                phx-value-id={row.signal.id}
+                class="rounded border-zinc-300 dark:border-zinc-600 text-blue-600"
+              />
+            </td>
+            <td class="px-3 py-2 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+              <%= format_time(row.signal.computed_at) %>
+            </td>
+            <td class="px-3 py-2">
+              <button
+                phx-click="filter_station"
+                phx-value-code={row.signal.station_code}
+                class="font-medium text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                <%= row.signal.station_code %>
+              </button>
+            </td>
+            <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">
+              <%= row.signal.outcome_label %>
+            </td>
+            <td class="px-3 py-2 whitespace-nowrap">
+              <.resolves_cell hours={row.hours_to_resolution} target_date={row.cluster.target_date} />
+            </td>
+            <td class="px-3 py-2">
+              <.action_badge side={row.signal.recommended_side} position={row.position} />
+            </td>
+            <td class="px-3 py-2">
+              <span class={["px-1.5 py-0.5 rounded text-[10px] font-medium", alert_class(row.signal.alert_level)]}>
+                <%= format_alert(row.signal.alert_level) %>
+              </span>
+            </td>
+            <td class="px-3 py-2">
+              <span class={["px-1.5 py-0.5 rounded text-[10px] font-medium", confidence_class(row.signal.confidence)]}>
+                <%= row.signal.confidence || "-" %>
+              </span>
+            </td>
+            <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">
+              $<%= format_price(row.signal.market_price) %>
+            </td>
+            <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">
+              <%= format_pct(row.signal.model_probability) %>
+            </td>
+            <td class="px-3 py-2">
+              <span class={["font-bold", edge_color(row.signal.edge)]}>
+                <%= format_edge(row.signal.edge) %>
+              </span>
+            </td>
+            <td class="px-3 py-2 text-zinc-500 dark:text-zinc-400">
+              <%= format_volume(row.cluster.outcomes, row.signal.outcome_label) %>
+            </td>
+            <td class="px-3 py-2 whitespace-nowrap">
+              <.trend_cell cluster_id={row.cluster.id} outcome_label={row.signal.outcome_label} />
+            </td>
+            <td class="px-3 py-2 text-zinc-600 dark:text-zinc-400">
+              <%= if row.position, do: format_tokens(row.position.tokens), else: "-" %>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div :if={length(@signals) < @total_count} class="p-3 text-center border-t border-zinc-200 dark:border-zinc-700">
+      <button
+        phx-click="load_more"
+        class="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+      >
+        Show more (<%= length(@signals) %> of <%= @total_count %>)
+      </button>
+    </div>
+    """
+  end
+
+  defp resolves_cell(assigns) do
+    today = Date.utc_today()
+    resolves_today = assigns.target_date == today
+
+    assigns =
+      assigns
+      |> assign(:resolves_today, resolves_today)
+      |> assign(:urgent, assigns.hours != nil and assigns.hours < 6)
+
+    ~H"""
+    <span class={[if(@urgent, do: "text-red-600 dark:text-red-400 font-medium", else: "text-zinc-600 dark:text-zinc-400")]}>
+      <%= if @hours, do: "#{@hours}h", else: "-" %>
+    </span>
+    <span :if={@resolves_today} class="ml-1 px-1 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded text-[10px] font-medium">
+      Today
+    </span>
+    """
+  end
+
+  defp action_badge(assigns) do
+    ~H"""
+    <%= cond do %>
+      <% @position != nil -> %>
+        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+          BOUGHT
+        </span>
+      <% @side == "YES" -> %>
+        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+          BUY YES
+        </span>
+      <% @side == "NO" -> %>
+        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+          BUY NO
+        </span>
+      <% true -> %>
+        <span class="text-zinc-400">-</span>
+    <% end %>
+    """
+  end
+
+  defp trend_cell(assigns) do
+    {direction, delta} = Markets.price_trend(assigns.cluster_id, assigns.outcome_label)
+    assigns = assign(assigns, direction: direction, delta: delta)
+
+    ~H"""
+    <span class={trend_color(@direction)}>
+      <%= trend_arrow(@direction) %> <%= format_trend_delta(@delta) %>
+    </span>
     """
   end
 
@@ -275,6 +438,42 @@ defmodule WeatherEdgeWeb.SignalsLive do
     reload_signals(socket, default_filters())
   end
 
+  def handle_event("toggle_select", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    selected = socket.assigns.selected
+
+    updated =
+      if MapSet.member?(selected, id) do
+        MapSet.delete(selected, id)
+      else
+        MapSet.put(selected, id)
+      end
+
+    {:noreply, assign(socket, :selected, updated)}
+  end
+
+  def handle_event("open_detail", %{"id" => id}, socket) do
+    {:noreply, assign(socket, :detail_signal_id, String.to_integer(id))}
+  end
+
+  def handle_event("filter_station", %{"code" => code}, socket) do
+    filters = %{socket.assigns.filters | stations: [code]}
+    reload_signals(socket, filters)
+  end
+
+  def handle_event("load_more", _params, socket) do
+    new_offset = socket.assigns.offset + 20
+
+    more_signals =
+      Queries.list_filtered_signals(socket.assigns.filters, offset: new_offset)
+
+    {:noreply,
+     assign(socket,
+       signals: socket.assigns.signals ++ more_signals,
+       offset: new_offset
+     )}
+  end
+
   defp reload_signals(socket, filters) do
     signals = Queries.list_filtered_signals(filters)
     total_count = Queries.count_filtered_signals(filters)
@@ -283,7 +482,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
      assign(socket,
        filters: filters,
        signals: signals,
-       total_count: total_count
+       total_count: total_count,
+       offset: 0
      )}
   end
 
@@ -345,4 +545,84 @@ defmodule WeatherEdgeWeb.SignalsLive do
       has_position: "all"
     }
   end
+
+  # Formatting helpers
+
+  defp format_time(nil), do: "-"
+
+  defp format_time(%DateTime{} = dt) do
+    Calendar.strftime(dt, "%H:%M")
+  end
+
+  defp format_time(%NaiveDateTime{} = ndt) do
+    Calendar.strftime(ndt, "%H:%M")
+  end
+
+  defp format_price(nil), do: "0.00"
+  defp format_price(val) when is_number(val), do: :erlang.float_to_binary(val * 1.0, decimals: 2)
+
+  defp format_pct(nil), do: "-"
+  defp format_pct(val) when is_number(val), do: "#{:erlang.float_to_binary(val * 100, decimals: 1)}%"
+
+  defp format_edge(nil), do: "-"
+
+  defp format_edge(val) when is_number(val) do
+    sign = if val >= 0, do: "+", else: ""
+    "#{sign}#{:erlang.float_to_binary(val * 100, decimals: 1)}%"
+  end
+
+  defp edge_color(nil), do: "text-zinc-400"
+  defp edge_color(val) when is_number(val) and val > 0.15, do: "text-green-600 dark:text-green-400"
+  defp edge_color(val) when is_number(val) and val > 0.08, do: "text-yellow-600 dark:text-yellow-400"
+  defp edge_color(_), do: "text-zinc-400"
+
+  defp alert_class("extreme"), do: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+  defp alert_class("strong"), do: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+  defp alert_class("opportunity"), do: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+  defp alert_class("safe_no"), do: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+  defp alert_class(_), do: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+
+  defp format_alert("safe_no"), do: "Safe NO"
+  defp format_alert(nil), do: "-"
+  defp format_alert(level), do: String.capitalize(level)
+
+  defp confidence_class("confirmed"), do: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+  defp confidence_class("high"), do: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400"
+  defp confidence_class("forecast"), do: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500"
+  defp confidence_class(_), do: "bg-zinc-50 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500"
+
+  defp format_volume(nil, _), do: "-"
+
+  defp format_volume(outcomes, outcome_label) when is_list(outcomes) do
+    case Enum.find(outcomes, fn o -> o["outcome_label"] == outcome_label || o["label"] == outcome_label end) do
+      %{"liquidity" => liq} when is_number(liq) -> "$#{format_price(liq)}"
+      _ -> "-"
+    end
+  end
+
+  defp format_volume(outcomes, outcome_label) when is_map(outcomes) do
+    case Map.get(outcomes, outcome_label) do
+      %{"liquidity" => liq} when is_number(liq) -> "$#{format_price(liq)}"
+      _ -> "-"
+    end
+  end
+
+  defp format_volume(_, _), do: "-"
+
+  defp format_tokens(nil), do: "-"
+  defp format_tokens(tokens) when is_number(tokens), do: :erlang.float_to_binary(tokens * 1.0, decimals: 1)
+
+  defp trend_arrow(:up), do: "↑"
+  defp trend_arrow(:down), do: "↓"
+  defp trend_arrow(:flat), do: "→"
+
+  defp trend_color(:up), do: "text-green-600 dark:text-green-400"
+  defp trend_color(:down), do: "text-red-600 dark:text-red-400"
+  defp trend_color(:flat), do: "text-zinc-400"
+
+  defp format_trend_delta(delta) when is_number(delta) do
+    :erlang.float_to_binary(abs(delta * 1.0), decimals: 2)
+  end
+
+  defp format_trend_delta(_), do: ""
 end
