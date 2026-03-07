@@ -24,13 +24,15 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
   end
 
   def perform(%Oban.Job{}) do
+    WeatherEdge.JobTracker.start(:event_scanner)
+
     stations = Stations.list_stations()
 
     stations
     |> Enum.filter(& &1.monitoring_enabled)
     |> Enum.each(&scan_station/1)
 
-    WeatherEdge.JobTracker.record(:event_scanner)
+    WeatherEdge.JobTracker.finish(:event_scanner)
     :ok
   end
 

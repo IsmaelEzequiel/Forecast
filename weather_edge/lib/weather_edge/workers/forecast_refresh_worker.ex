@@ -31,6 +31,7 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
   end
 
   def perform(%Oban.Job{}) do
+    WeatherEdge.JobTracker.start(:forecast_refresh)
     station_codes = Markets.station_codes_with_active_clusters()
 
     Logger.info("ForecastRefresh: Refreshing forecasts for #{length(station_codes)} station(s)")
@@ -46,7 +47,7 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
       end
     end)
 
-    WeatherEdge.JobTracker.record(:forecast_refresh)
+    WeatherEdge.JobTracker.finish(:forecast_refresh)
     :ok
   end
 

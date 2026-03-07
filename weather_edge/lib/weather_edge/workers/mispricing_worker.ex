@@ -23,6 +23,7 @@ defmodule WeatherEdge.Workers.MispricingWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    WeatherEdge.JobTracker.start(:mispricing)
     clusters = Markets.get_active_clusters()
 
     Logger.info("MispricingWorker: Scanning #{length(clusters)} active cluster(s)")
@@ -80,7 +81,7 @@ defmodule WeatherEdge.Workers.MispricingWorker do
       end
     end)
 
-    WeatherEdge.JobTracker.record(:mispricing)
+    WeatherEdge.JobTracker.finish(:mispricing)
     :ok
   end
 

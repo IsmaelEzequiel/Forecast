@@ -22,6 +22,7 @@ defmodule WeatherEdge.Workers.ResolutionWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    WeatherEdge.JobTracker.start(:resolution)
     today = Date.utc_today()
     clusters = get_unresolved_past_clusters(today)
 
@@ -31,7 +32,7 @@ defmodule WeatherEdge.Workers.ResolutionWorker do
       resolve_cluster(cluster)
     end)
 
-    WeatherEdge.JobTracker.record(:resolution)
+    WeatherEdge.JobTracker.finish(:resolution)
     :ok
   end
 

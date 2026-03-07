@@ -31,6 +31,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
 
     if connected?(socket) do
       subscribe_to_topics(stations)
+      :timer.send_interval(5_000, self(), :tick_workers)
     end
 
     wallet_address = Application.get_env(:weather_edge, :polymarket)[:wallet_address]
@@ -56,7 +57,8 @@ defmodule WeatherEdgeWeb.DashboardLive do
        modal_station_info: nil,
        modal_temp_unit: "C",
        signal_filter: "all",
-       signal_limit: 20
+       signal_limit: 20,
+       worker_tick: 0
      )}
   end
 
@@ -182,6 +184,10 @@ defmodule WeatherEdgeWeb.DashboardLive do
            modal_error: "Could not validate station. Please try again."
          )}
     end
+  end
+
+  def handle_info(:tick_workers, socket) do
+    {:noreply, assign(socket, :worker_tick, System.monotonic_time())}
   end
 
   def handle_info(_msg, socket) do
@@ -371,12 +377,12 @@ defmodule WeatherEdgeWeb.DashboardLive do
       <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
         <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-3">Workers</h3>
         <div class="flex flex-wrap gap-2">
-          <.worker_button label="Scan Events" desc="Find new Polymarket temperature markets" worker="event_scanner" last_run={job_ago(:event_scanner)} />
-          <.worker_button label="Refresh Forecasts" desc="Fetch predictions from all 8 weather models (updates Model Breakdown)" worker="forecast_refresh" last_run={job_ago(:forecast_refresh)} />
-          <.worker_button label="Detect Mispricings" desc="Compare model probabilities vs market prices, generate signals" worker="mispricing" last_run={job_ago(:mispricing)} />
-          <.worker_button label="Snapshot Prices" desc="Save current Polymarket prices for P&L tracking" worker="price_snapshot" last_run={job_ago(:price_snapshot)} />
-          <.worker_button label="Monitor Positions" desc="Check open positions and update unrealized P&L" worker="position_monitor" last_run={job_ago(:position_monitor)} />
-          <.worker_button label="Resolve Events" desc="Close past events, fetch actual temps, finalize P&L" worker="resolution" last_run={job_ago(:resolution)} />
+          <.worker_button label="Scan Events" desc="Find new Polymarket temperature markets" worker="event_scanner" last_run={job_ago(:event_scanner)} running={job_running?(:event_scanner)} tick={@worker_tick} />
+          <.worker_button label="Refresh Forecasts" desc="Fetch predictions from all 8 weather models (updates Model Breakdown)" worker="forecast_refresh" last_run={job_ago(:forecast_refresh)} running={job_running?(:forecast_refresh)} tick={@worker_tick} />
+          <.worker_button label="Detect Mispricings" desc="Compare model probabilities vs market prices, generate signals" worker="mispricing" last_run={job_ago(:mispricing)} running={job_running?(:mispricing)} tick={@worker_tick} />
+          <.worker_button label="Snapshot Prices" desc="Save current Polymarket prices for P&L tracking" worker="price_snapshot" last_run={job_ago(:price_snapshot)} running={job_running?(:price_snapshot)} tick={@worker_tick} />
+          <.worker_button label="Monitor Positions" desc="Check open positions and update unrealized P&L" worker="position_monitor" last_run={job_ago(:position_monitor)} running={job_running?(:position_monitor)} tick={@worker_tick} />
+          <.worker_button label="Resolve Events" desc="Close past events, fetch actual temps, finalize P&L" worker="resolution" last_run={job_ago(:resolution)} running={job_running?(:resolution)} tick={@worker_tick} />
         </div>
       </div>
 
@@ -453,18 +459,23 @@ defmodule WeatherEdgeWeb.DashboardLive do
   attr :desc, :string, required: true
   attr :worker, :string, required: true
   attr :last_run, :string, required: true
+  attr :running, :boolean, required: true
+  attr :tick, :integer, required: true
 
   defp worker_button(assigns) do
     ~H"""
     <button
       phx-click="trigger_worker"
       phx-value-worker={@worker}
-      class="flex flex-col items-start rounded-md border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+      class={"flex flex-col items-start rounded-md border px-3 py-2 text-left transition-colors #{if @running, do: "border-green-400 dark:border-green-600 bg-green-50 dark:bg-green-950", else: "border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700"}"}
       title={@desc}
+      disabled={@running}
     >
       <div class="flex items-center gap-2">
+        <span :if={@running} class="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
         <span class="text-xs font-medium text-zinc-700 dark:text-zinc-300"><%= @label %></span>
-        <span class="text-xs text-zinc-400 dark:text-zinc-500"><%= @last_run %></span>
+        <span :if={@running} class="text-xs font-semibold text-green-600 dark:text-green-400">Running</span>
+        <span :if={!@running} class="text-xs text-zinc-400 dark:text-zinc-500"><%= @last_run %></span>
       </div>
       <span class="text-[10px] text-zinc-400 dark:text-zinc-500 mt-0.5"><%= @desc %></span>
     </button>
@@ -472,6 +483,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
   end
 
   defp job_ago(key), do: WeatherEdge.JobTracker.time_ago(WeatherEdge.JobTracker.last_run(key))
+  defp job_running?(key), do: WeatherEdge.JobTracker.running?(key)
 
   defp worker_module("event_scanner"), do: WeatherEdge.Workers.EventScannerWorker
   defp worker_module("forecast_refresh"), do: WeatherEdge.Workers.ForecastRefreshWorker

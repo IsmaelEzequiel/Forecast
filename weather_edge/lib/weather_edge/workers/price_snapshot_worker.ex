@@ -17,6 +17,7 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    WeatherEdge.JobTracker.start(:price_snapshot)
     clusters = tracked_clusters()
 
     Logger.info("PriceSnapshotWorker: Snapshotting #{length(clusters)} cluster(s)")
@@ -25,7 +26,7 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
       snapshot_cluster(cluster)
     end)
 
-    WeatherEdge.JobTracker.record(:price_snapshot)
+    WeatherEdge.JobTracker.finish(:price_snapshot)
     :ok
   end
 

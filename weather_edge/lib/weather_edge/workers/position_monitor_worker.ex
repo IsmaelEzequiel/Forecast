@@ -16,6 +16,7 @@ defmodule WeatherEdge.Workers.PositionMonitorWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    WeatherEdge.JobTracker.start(:position_monitor)
     positions = open_positions()
 
     Logger.info("PositionMonitorWorker: Monitoring #{length(positions)} open position(s)")
@@ -24,7 +25,7 @@ defmodule WeatherEdge.Workers.PositionMonitorWorker do
       monitor_position(position)
     end)
 
-    WeatherEdge.JobTracker.record(:position_monitor)
+    WeatherEdge.JobTracker.finish(:position_monitor)
     :ok
   end
 

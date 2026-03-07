@@ -1,10 +1,19 @@
 defmodule WeatherEdge.JobTracker do
   @moduledoc """
-  Tracks last execution time for background workers via persistent_term.
+  Tracks running state and last execution time for background workers via persistent_term.
   """
 
-  def record(worker_key) do
+  def start(worker_key) do
+    :persistent_term.put({:job_running, worker_key}, true)
+  end
+
+  def finish(worker_key) do
+    :persistent_term.put({:job_running, worker_key}, false)
     :persistent_term.put({:job_last_run, worker_key}, DateTime.utc_now())
+  end
+
+  def running?(worker_key) do
+    :persistent_term.get({:job_running, worker_key}, false)
   end
 
   def last_run(worker_key) do
