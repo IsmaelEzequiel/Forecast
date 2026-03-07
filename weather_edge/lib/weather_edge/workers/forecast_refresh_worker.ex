@@ -91,7 +91,13 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
   end
 
   defp fetch_wu_forecast(station, target_date, now) do
-    case WundergroundClient.get_forecast_max_temp(station.code, target_date) do
+    wu_opts = [
+      latitude: station.latitude,
+      longitude: station.longitude,
+      wunderground_url: station.wunderground_url
+    ]
+
+    case WundergroundClient.get_forecast_max_temp(station.code, target_date, wu_opts) do
       {:ok, max_temp_c} ->
         Forecasts.store_snapshot(%{
           station_code: station.code,

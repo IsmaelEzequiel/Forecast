@@ -35,14 +35,20 @@ defmodule WeatherEdge.Forecasts.WundergroundClient do
 
   Returns `{:ok, max_temp_celsius}` or `{:error, reason}`.
   """
-  def get_forecast_max_temp(station_code, %Date{} = date) do
-    url = forecast_url(station_code)
+  def get_forecast_max_temp(station_code, %Date{} = date, opts \\ []) do
+    url = forecast_url(station_code, opts)
 
-    case Req.get(url, receive_timeout: 15_000, retry: :transient, max_retries: 1) do
+    case Req.get(url,
+           receive_timeout: 15_000,
+           retry: :transient,
+           max_retries: 1,
+           headers: [{"user-agent", "Mozilla/5.0"}]
+         ) do
       {:ok, %Req.Response{status: 200, body: body}} ->
         parse_forecast_temp(body, date)
 
       {:ok, %Req.Response{status: status}} ->
+        Logger.warning("WU forecast HTTP #{status} for #{station_code} (url: #{url})")
         {:error, {:http_error, status}}
 
       {:error, reason} ->
@@ -50,8 +56,21 @@ defmodule WeatherEdge.Forecasts.WundergroundClient do
     end
   end
 
-  defp forecast_url(station_code) do
-    "https://www.wunderground.com/forecast/#{station_code}"
+  defp forecast_url(station_code, opts) do
+    cond do
+      # Use explicit WU URL if provided by the station record
+      wu_url = Keyword.get(opts, :wunderground_url) ->
+        wu_url
+
+      # Use lat/lon for GPS-based forecast (works for all stations worldwide)
+      lat = Keyword.get(opts, :latitude) ->
+        lon = Keyword.get(opts, :longitude)
+        "https://www.wunderground.com/forecast/#{lat},#{lon}"
+
+      # Fallback to station code (only works for US stations)
+      true ->
+        "https://www.wunderground.com/forecast/#{station_code}"
+    end
   end
 
   defp parse_forecast_temp(html, target_date) when is_binary(html) do

@@ -52,9 +52,32 @@ defmodule WeatherEdge.Calibration do
     auto_buy_pnl = Enum.reduce(auto_buy_records, 0.0, fn r, acc -> acc + (r.auto_buy_pnl || 0.0) end)
     auto_buy_wins = Enum.count(auto_buy_records, fn r -> r.auto_buy_outcome == "win" end)
 
+    # Also count resolved events from positions when no accuracy records yet
+    {resolved_count, resolved_wins} =
+      if count == 0 do
+        resolved_positions =
+          WeatherEdge.Trading.Position
+          |> where([p], p.status in ["resolved_win", "resolved_loss"])
+          |> Repo.all()
+
+        r_count =
+          resolved_positions
+          |> Enum.map(& &1.market_cluster_id)
+          |> Enum.uniq()
+          |> length()
+
+        r_wins = Enum.count(resolved_positions, &(&1.status == "resolved_win"))
+        {r_count, r_wins}
+      else
+        {count, hit_count}
+      end
+
+    total_resolved = max(count, resolved_count)
+    total_hits = max(hit_count, resolved_wins)
+
     %{
-      total_events: count,
-      hit_rate: if(count > 0, do: hit_count / count, else: 0.0),
+      total_events: total_resolved,
+      hit_rate: if(total_resolved > 0, do: total_hits / total_resolved, else: 0.0),
       auto_buy_count: length(auto_buy_records),
       auto_buy_wins: auto_buy_wins,
       auto_buy_total_pnl: auto_buy_pnl

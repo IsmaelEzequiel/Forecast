@@ -84,7 +84,7 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
 
       <!-- Summary Stats -->
       <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <.stat_card label="Open Positions" value={"#{length(@open_positions)}"} />
+        <.stat_card label="Open Positions" value={"#{length(@open_positions) + length(@sidecar_positions)}"} />
         <.stat_card label="Events Resolved" value={"#{@summary.total_events}"} />
         <.stat_card label="Prediction Hit Rate" value={"#{Float.round(@summary.hit_rate * 100, 1)}%"} />
         <.stat_card label="Auto-Buy Trades" value={"#{@summary.auto_buy_count}"} />
@@ -257,10 +257,11 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
                     <%= Date.diff(cluster.target_date, Date.utc_today()) %>d
                   </span>
                 </div>
-                <div :if={cluster.outcomes} class="text-xs text-zinc-500 dark:text-zinc-400">
-                  <%= for o <- top_outcomes(cluster.outcomes, 3) do %>
-                    <span class="mr-2"><%= o["outcome_label"] %>: $<%= fmt_outcome_price(o["yes_price"]) %></span>
-                  <% end %>
+                <div :if={cluster.outcomes} class="mt-1 space-y-0.5">
+                  <div :for={o <- top_outcomes(cluster.outcomes, 5)} class="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                    <span><%= o["outcome_label"] %></span>
+                    <span class="font-mono">$<%= fmt_outcome_price(o["yes_price"]) %></span>
+                  </div>
                 </div>
               </div>
             </div>

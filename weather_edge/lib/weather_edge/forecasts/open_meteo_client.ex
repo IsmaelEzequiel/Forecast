@@ -6,6 +6,8 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
 
   @models ["gfs", "ecmwf_ifs", "icon_global", "jma", "gem_global", "ukmo", "arpege"]
 
+  require Logger
+
   @spec fetch_all_models(float(), float(), pos_integer()) ::
           {:ok, map()} | {:error, term()}
   def fetch_all_models(latitude, longitude, forecast_days \\ 7) do
@@ -20,7 +22,12 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
         {:ok, {model, {:ok, body}}}, acc ->
           Map.put(acc, "hourly_#{model}", Map.get(body, "hourly", %{}))
 
-        _, acc ->
+        {:ok, {model, {:error, reason}}}, acc ->
+          Logger.warning("OpenMeteo: Model #{model} failed: #{inspect(reason)}")
+          acc
+
+        {:exit, reason}, acc ->
+          Logger.warning("OpenMeteo: Task exited: #{inspect(reason)}")
           acc
       end)
 

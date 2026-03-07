@@ -53,8 +53,8 @@ defmodule WeatherEdge.Signals.Detector do
     liquidity = Map.get(outcome, "liquidity", 0.0)
 
     # Skip outcomes that are effectively settled:
-    # market at 95%+ YES with observed data = already resolved, don't fight it
-    if observed_high_c != nil and yes_price >= 0.95 do
+    # market at 95%+ YES = already resolved on Polymarket, don't fight it
+    if yes_price >= 0.95 do
       nil
     else
       # Try exact match first, then extract short temp label (e.g., "28C" from full question)

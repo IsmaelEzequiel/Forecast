@@ -9,10 +9,13 @@ defmodule WeatherEdgeWeb.Components.PortfolioSummaryComponent do
     {open_count, total_invested, current_value, unrealized_pnl, unrealized_pnl_pct,
      today_realized, total_realized} =
       if assigns.sidecar_positions != [] do
-        {oc, ti, cv, up, upp, _tr_sidecar, _tr_sidecar2} =
+        {oc, ti, cv, up, upp, sidecar_realized, _} =
           compute_from_sidecar(assigns.sidecar_positions)
 
-        {today_r, total_r} = compute_realized_from_db(assigns.positions)
+        {db_today_r, db_total_r} = compute_realized_from_db(assigns.positions)
+        # Combine sidecar realized P&L with DB realized P&L
+        total_r = db_total_r + sidecar_realized
+        today_r = db_today_r + sidecar_realized
         {oc, ti, cv, up, upp, today_r, total_r}
       else
         compute_from_db(assigns.positions)
