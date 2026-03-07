@@ -19,13 +19,22 @@ defmodule WeatherEdge.Signals do
 
   @doc """
   Creates multiple Signal records from a list of detector results.
+  Deduplicates: skips signals for the same outcome + cluster within the last hour.
   """
   @spec store_signals(integer(), String.t(), [map()]) :: {:ok, [Signal.t()]}
   def store_signals(market_cluster_id, station_code, signals) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
+    one_hour_ago = DateTime.add(now, -3600, :second)
+
+    recent_keys = recent_signal_keys(market_cluster_id, one_hour_ago)
 
     results =
-      Enum.map(signals, fn signal ->
+      signals
+      |> Enum.reject(fn signal ->
+        key = {signal.outcome_label, signal.recommended_side}
+        MapSet.member?(recent_keys, key)
+      end)
+      |> Enum.map(fn signal ->
         attrs = %{
           market_cluster_id: market_cluster_id,
           station_code: station_code,
@@ -47,6 +56,14 @@ defmodule WeatherEdge.Signals do
       |> Enum.filter(& &1)
 
     {:ok, results}
+  end
+
+  defp recent_signal_keys(market_cluster_id, since) do
+    Signal
+    |> where([s], s.market_cluster_id == ^market_cluster_id and s.computed_at >= ^since)
+    |> select([s], {s.outcome_label, s.recommended_side})
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   @doc """

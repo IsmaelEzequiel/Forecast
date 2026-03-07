@@ -35,9 +35,9 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
       |> assign(:has_more, has_more)
 
     ~H"""
-    <div class="rounded-lg border border-zinc-200 bg-white p-4">
+    <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-semibold text-zinc-700">
+        <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
           Signal Feed
           <span class="text-xs font-normal text-zinc-400 ml-1">
             (<%= length(@filtered_signals) %><%= if @has_more, do: " of #{@total_filtered}", else: "" %>)
@@ -50,7 +50,7 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
             phx-value-filter={value}
             class={[
               "text-xs px-2 py-1 rounded-full font-medium transition-colors",
-              if(@filter == value, do: active_filter_class(value), else: "bg-zinc-100 text-zinc-500 hover:bg-zinc-200")
+              if(@filter == value, do: active_filter_class(value), else: "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700")
             ]}
           >
             {label}
@@ -77,11 +77,11 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <span class={["inline-block w-2 h-2 rounded-full", signal_dot_class(signal)]}></span>
-              <span class="font-mono text-xs text-zinc-500">
+              <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">
                 {format_timestamp(signal)}
               </span>
-              <span class="font-semibold text-zinc-700">{get_field(signal, :station_code, "???")}</span>
-              <span class="font-bold text-zinc-900">{extract_temp(signal)}</span>
+              <span class="font-semibold text-zinc-700 dark:text-zinc-300">{get_field(signal, :station_code, "???")}</span>
+              <span class="font-bold text-zinc-900 dark:text-zinc-100">{extract_temp(signal)}</span>
               <span class="text-xs text-zinc-400">{format_target_date(signal)}</span>
             </div>
             <div class="flex items-center gap-2">
@@ -97,20 +97,20 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
             </div>
           </div>
 
-          <div class="mt-1 flex items-center gap-4 text-xs text-zinc-500">
+          <div class="mt-1 flex items-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
             <%= if signal_type(signal) == :auto_buy do %>
-              <span class="font-medium text-indigo-600">AUTO-BUY</span>
+              <span class="font-medium text-indigo-600 dark:text-indigo-400">AUTO-BUY</span>
               <span>@ {format_price(signal)}</span>
             <% else %>
               <span>Market: {format_price(signal)}</span>
               <span>Model: {format_model_prob(signal)}</span>
-              <span class="font-semibold text-zinc-700">Edge: {format_edge(signal)}</span>
+              <span class="font-semibold text-zinc-700 dark:text-zinc-300">Edge: {format_edge(signal)}</span>
             <% end %>
             <a
               :if={market_url(signal) != nil}
               href={market_url(signal)}
               target="_blank"
-              class="text-blue-500 hover:text-blue-700 hover:underline ml-auto"
+              class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:underline ml-auto"
             >
               Open ↗
             </a>
@@ -120,7 +120,7 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
         <button
           :if={@has_more}
           phx-click="load_more_signals"
-          class="mt-3 w-full rounded-md border border-zinc-200 bg-zinc-50 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-100 transition-colors"
+          class="mt-3 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 py-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
         >
           Show more (<%= @total_filtered - length(@filtered_signals) %> remaining)
         </button>
@@ -169,10 +169,10 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
 
   defp confidence_class(signal) do
     case get_confidence(signal) do
-      "confirmed" -> "bg-emerald-100 text-emerald-700 font-semibold"
-      "high" -> "bg-sky-100 text-sky-700"
-      "forecast" -> "bg-zinc-100 text-zinc-500"
-      _ -> "bg-zinc-50 text-zinc-400"
+      "confirmed" -> "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-semibold"
+      "high" -> "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400"
+      "forecast" -> "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500"
+      _ -> "bg-zinc-50 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500"
     end
   end
 
@@ -236,7 +236,7 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
         case get_side(signal) do
           "YES" -> "bg-green-600 text-white"
           "NO" -> "bg-red-600 text-white"
-          _ -> "bg-zinc-200 text-zinc-600"
+          _ -> "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400"
         end
     end
   end
@@ -305,14 +305,7 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
   end
 
   defp date_label(date) do
-    days = Date.diff(date, Date.utc_today())
-
-    cond do
-      days == 0 -> "Today"
-      days == 1 -> "Tomorrow"
-      days > 1 -> "+#{days}d (#{Calendar.strftime(date, "%b %d")})"
-      true -> Calendar.strftime(date, "%b %d")
-    end
+    Calendar.strftime(date, "%b %d")
   end
 
   defp extract_date_from_label(label) do
@@ -346,12 +339,12 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
 
   defp signal_border_class(signal) do
     case {signal_type(signal), signal_alert_level(signal)} do
-      {:auto_buy, _} -> "border-indigo-300 bg-indigo-50"
-      {_, "extreme"} -> "border-red-300 bg-red-50"
-      {_, "strong"} -> "border-orange-300 bg-orange-50"
-      {_, "opportunity"} -> "border-yellow-300 bg-yellow-50"
-      {_, "safe_no"} -> "border-green-300 bg-green-50"
-      _ -> "border-zinc-200 bg-zinc-50"
+      {:auto_buy, _} -> "border-indigo-300 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-950/30"
+      {_, "extreme"} -> "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-950/30"
+      {_, "strong"} -> "border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-950/30"
+      {_, "opportunity"} -> "border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-950/30"
+      {_, "safe_no"} -> "border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950/30"
+      _ -> "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800"
     end
   end
 
@@ -368,12 +361,12 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
 
   defp alert_badge_class(signal) do
     case {signal_type(signal), signal_alert_level(signal)} do
-      {:auto_buy, _} -> "bg-indigo-100 text-indigo-700"
-      {_, "extreme"} -> "bg-red-100 text-red-700"
-      {_, "strong"} -> "bg-orange-100 text-orange-700"
-      {_, "opportunity"} -> "bg-yellow-100 text-yellow-700"
-      {_, "safe_no"} -> "bg-green-100 text-green-700"
-      _ -> "bg-zinc-100 text-zinc-600"
+      {:auto_buy, _} -> "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400"
+      {_, "extreme"} -> "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+      {_, "strong"} -> "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
+      {_, "opportunity"} -> "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+      {_, "safe_no"} -> "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+      _ -> "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
     end
   end
 end

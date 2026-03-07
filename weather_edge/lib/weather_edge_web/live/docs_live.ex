@@ -11,7 +11,7 @@ defmodule WeatherEdgeWeb.DocsLive do
     ~H"""
     <div class="max-w-4xl mx-auto space-y-8 pb-16">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-zinc-900">WeatherEdge Documentation</h1>
+        <h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">WeatherEdge Documentation</h1>
         <.link navigate="/" class="text-sm text-blue-600 hover:underline">&larr; Back to Dashboard</.link>
       </div>
 
@@ -20,8 +20,8 @@ defmodule WeatherEdgeWeb.DocsLive do
       </p>
 
       <%!-- TABLE OF CONTENTS --%>
-      <nav class="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-        <h2 class="text-sm font-semibold text-zinc-700 mb-2">Contents</h2>
+      <nav class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-4">
+        <h2 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">Contents</h2>
         <ol class="list-decimal list-inside text-sm space-y-1 text-blue-600">
           <li><a href="#header" class="hover:underline">Header &amp; Navigation</a></li>
           <li><a href="#portfolio" class="hover:underline">Portfolio Summary</a></li>
@@ -40,7 +40,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 1. HEADER --%>
       <section id="header" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">1. Header &amp; Navigation</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">1. Header &amp; Navigation</h2>
         <dl class="space-y-2 text-sm">
           <div>
             <dt class="font-semibold text-zinc-700">Balance</dt>
@@ -72,7 +72,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 2. PORTFOLIO SUMMARY --%>
       <section id="portfolio" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">2. Portfolio Summary</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">2. Portfolio Summary</h2>
         <dl class="space-y-2 text-sm">
           <div>
             <dt class="font-semibold text-zinc-700">Open Positions</dt>
@@ -118,7 +118,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 3. STATION CARDS --%>
       <section id="station-card" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">3. Station Cards</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">3. Station Cards</h2>
         <dl class="space-y-2 text-sm">
           <div>
             <dt class="font-semibold text-zinc-700">Station Code</dt>
@@ -189,7 +189,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 4. EVENT CARDS --%>
       <section id="event-card" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">4. Event Cards (within Station)</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">4. Event Cards (within Station)</h2>
         <dl class="space-y-2 text-sm">
           <div>
             <dt class="font-semibold text-zinc-700">Target Date</dt>
@@ -232,7 +232,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 5. STATION DETAIL --%>
       <section id="station-detail" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">5. Station Detail Page</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">5. Station Detail Page</h2>
         <p class="text-sm text-zinc-500">
           Accessed by clicking an event card. Shows detailed analysis for a specific station + event.
           Includes an "Open on Polymarket" button to view the market directly.
@@ -309,7 +309,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 6. SIGNAL FEED --%>
       <section id="signal-feed" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">6. Signal Feed</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">6. Signal Feed</h2>
         <p class="text-sm text-zinc-500">
           The real-time feed of mispricing signals on the dashboard. Shows 20 signals at a time
           with a "Show more" button to load additional results. Each signal row shows:
@@ -429,7 +429,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 7. ALERT LEVELS --%>
       <section id="alert-levels" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">7. Alert Levels</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">7. Alert Levels</h2>
         <p class="text-sm text-zinc-500">
           Each signal is classified into an alert level based on the edge magnitude and direction:
         </p>
@@ -489,7 +489,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 8. CONFIDENCE LEVELS --%>
       <section id="confidence" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">8. Confidence Levels</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">8. Confidence Levels</h2>
         <p class="text-sm text-zinc-500">
           Each signal has a confidence level based on the station's solar peak status.
           This indicates how reliable the signal data is:
@@ -523,7 +523,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 9. PEAK STATUS --%>
       <section id="peak-status" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">9. Peak Status &amp; Timezone Strategy</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">9. Peak Status &amp; Timezone Strategy</h2>
         <p class="text-sm text-zinc-500">
           Temperature markets resolve based on the daily high, which typically occurs between
           12:00-15:00 local solar time. WeatherEdge uses each station's longitude to calculate
@@ -580,7 +580,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 10. OBSERVED TEMP --%>
       <section id="observed-temp" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">10. Observed Temperature Override</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">10. Observed Temperature Override</h2>
         <p class="text-sm text-zinc-500">
           For today's markets, the system fetches the actual observed high temperature from METAR
           and uses it to override weather model probabilities. This prevents bad signals like
@@ -612,7 +612,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 11. WORKERS --%>
       <section id="workers" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">11. Background Workers</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">11. Background Workers</h2>
         <p class="text-sm text-zinc-500">
           Oban-powered jobs that run automatically:
         </p>
@@ -672,7 +672,7 @@ defmodule WeatherEdgeWeb.DocsLive do
 
       <%!-- 12. ARCHITECTURE --%>
       <section id="architecture" class="space-y-3">
-        <h2 class="text-lg font-bold text-zinc-800 border-b pb-1">12. Architecture Overview</h2>
+        <h2 class="text-lg font-bold text-zinc-800 dark:text-zinc-200 border-b pb-1">12. Architecture Overview</h2>
         <div class="text-sm text-zinc-500 space-y-3">
           <p>
             <strong class="text-zinc-700">Phoenix LiveView App</strong> &mdash;

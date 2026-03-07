@@ -32,6 +32,16 @@ Hooks.UppercaseInput = {
   }
 }
 
+Hooks.DarkMode = {
+  mounted() {
+    this.el.addEventListener("click", () => {
+      document.documentElement.classList.toggle("dark")
+      const isDark = document.documentElement.classList.contains("dark")
+      localStorage.setItem("theme", isDark ? "dark" : "light")
+    })
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 let liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,

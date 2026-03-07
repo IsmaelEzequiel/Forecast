@@ -9,7 +9,6 @@ defmodule WeatherEdgeWeb.Components.PortfolioSummaryComponent do
     {open_count, total_invested, current_value, unrealized_pnl, unrealized_pnl_pct,
      today_realized, total_realized} =
       if assigns.sidecar_positions != [] do
-        # Use sidecar for open position data, but DB for realized P&L
         {oc, ti, cv, up, upp, _tr_sidecar, _tr_sidecar2} =
           compute_from_sidecar(assigns.sidecar_positions)
 
@@ -30,20 +29,20 @@ defmodule WeatherEdgeWeb.Components.PortfolioSummaryComponent do
       |> assign(:total_realized, total_realized)
 
     ~H"""
-    <div class="rounded-lg border border-zinc-200 bg-white p-4">
-      <h3 class="text-sm font-semibold text-zinc-600 mb-3">Portfolio Summary</h3>
+    <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+      <h3 class="text-sm font-semibold text-zinc-600 dark:text-zinc-300 mb-3">Portfolio Summary</h3>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <div>
           <p class="text-xs text-zinc-400">Open Positions</p>
-          <p class="text-lg font-semibold text-zinc-900"><%= @open_count %></p>
+          <p class="text-lg font-semibold text-zinc-900 dark:text-zinc-100"><%= @open_count %></p>
         </div>
         <div>
           <p class="text-xs text-zinc-400">Total Invested</p>
-          <p class="text-lg font-semibold text-zinc-900">$<%= format_usd(@total_invested) %></p>
+          <p class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">$<%= format_usd(@total_invested) %></p>
         </div>
         <div>
           <p class="text-xs text-zinc-400">Current Value</p>
-          <p class="text-lg font-semibold text-zinc-900">$<%= format_usd(@current_value) %></p>
+          <p class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">$<%= format_usd(@current_value) %></p>
         </div>
         <div>
           <p class="text-xs text-zinc-400">Unrealized P&L</p>
@@ -162,7 +161,7 @@ defmodule WeatherEdgeWeb.Components.PortfolioSummaryComponent do
 
   defp pnl_color(value) when value > 0, do: "text-green-600"
   defp pnl_color(value) when value < 0, do: "text-red-600"
-  defp pnl_color(_), do: "text-zinc-600"
+  defp pnl_color(_), do: "text-zinc-600 dark:text-zinc-400"
 
   defp pnl_sign(value) when value > 0, do: "+"
   defp pnl_sign(value) when value < 0, do: "-"

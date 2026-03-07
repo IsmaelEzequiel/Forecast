@@ -101,6 +101,8 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
   end
 
   defp execute_buy(station, cluster, outcome, token_id, yes_price, model_prob) do
+    amount = kelly_size(station.buy_amount_usdc, model_prob, yes_price)
+
     order_outcome = %{
       "token_id" => token_id,
       "outcome_label" => outcome["outcome_label"],
@@ -110,7 +112,7 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
       "auto_order" => true
     }
 
-    case OrderManager.place_buy_order(station.code, order_outcome, station.buy_amount_usdc) do
+    case OrderManager.place_buy_order(station.code, order_outcome, amount) do
       {:ok, order} ->
         Logger.info(
           "AutoBuyer: Bought #{outcome["outcome_label"]} for #{station.code} " <>
@@ -210,6 +212,24 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
       }}
     )
   end
+
+  # Simplified Kelly criterion: f* = (p * b - q) / b
+  # where p = model_prob, q = 1-p, b = (1/price - 1) = potential profit per dollar risked
+  # Capped at 50% of base amount (half-Kelly) to reduce variance.
+  # Minimum 25% of base amount so small edges still get some allocation.
+  defp kelly_size(base_amount, model_prob, price) when price > 0 and price < 1 do
+    b = (1.0 - price) / price
+    q = 1.0 - model_prob
+    kelly_fraction = (model_prob * b - q) / b
+
+    # Half-Kelly, clamped between 25% and 150% of base
+    fraction = kelly_fraction * 0.5
+    multiplier = fraction |> max(0.25) |> min(1.5)
+
+    Float.round(base_amount * multiplier, 2)
+  end
+
+  defp kelly_size(base_amount, _model_prob, _price), do: base_amount
 
   defp clob_client, do: Application.get_env(:weather_edge, :clob_client, WeatherEdge.Trading.ClobClient)
 

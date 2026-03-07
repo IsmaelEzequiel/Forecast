@@ -29,6 +29,7 @@ defmodule WeatherEdgeWeb.Router do
       live "/", DashboardLive
       live "/stations/:code/events/:event_id", StationDetailLive
       live "/docs", DocsLive
+      live "/analytics", AnalyticsLive
     end
   end
 

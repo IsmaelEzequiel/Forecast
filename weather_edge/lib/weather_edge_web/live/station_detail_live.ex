@@ -259,7 +259,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
       </div>
 
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-zinc-900">
+        <h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 dark:text-zinc-100">
           <%= @station.code %> - <%= @station.city %>
         </h1>
         <div class="flex items-center gap-3">
@@ -282,7 +282,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
       </div>
 
       <div :if={@cluster && !@loading} class="space-y-4">
-        <div class="rounded-lg border border-zinc-200 bg-white p-4">
+        <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
           <div class="flex items-center justify-between">
             <div>
               <h2 class="text-lg font-semibold text-zinc-700 mb-1">
@@ -293,15 +293,15 @@ defmodule WeatherEdgeWeb.StationDetailLive do
             <div :if={@todays_high} class="text-right">
               <% display_high = if @station.temp_unit == "F", do: @todays_high * 9 / 5 + 32, else: @todays_high %>
               <p class="text-xs text-zinc-500">Observed High (24h)</p>
-              <p class="text-3xl font-bold text-zinc-900"><%= round(display_high) %>°<%= @station.temp_unit || "C" %></p>
+              <p class="text-3xl font-bold text-zinc-900 dark:text-zinc-100"><%= round(display_high) %>°<%= @station.temp_unit || "C" %></p>
               <p class="text-xs text-zinc-400"><%= :erlang.float_to_binary(display_high / 1, decimals: 1) %>°<%= @station.temp_unit || "C" %> raw</p>
             </div>
           </div>
         </div>
 
         <%!-- Temperature Distribution --%>
-        <div class="rounded-lg border border-zinc-200 bg-white p-4">
-          <h3 class="text-sm font-semibold text-zinc-700 mb-3">Temperature Distribution</h3>
+        <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+          <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3">Temperature Distribution</h3>
           <%= if @distribution do %>
             <div class="space-y-1">
               <div class="grid grid-cols-[80px_60px_60px_1fr] gap-2 text-xs font-medium text-zinc-500 mb-2">
@@ -342,8 +342,8 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         </div>
 
         <%!-- Model Breakdown --%>
-        <div class="rounded-lg border border-zinc-200 bg-white p-4">
-          <h3 class="text-sm font-semibold text-zinc-700 mb-3">Model Breakdown</h3>
+        <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+          <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3">Model Breakdown</h3>
           <%= if @model_snapshots != [] do %>
             <div class="space-y-1">
               <%= for snapshot <- @model_snapshots do %>
@@ -359,8 +359,8 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         </div>
 
         <%!-- Market Cluster Health --%>
-        <div class="rounded-lg border border-zinc-200 bg-white p-4">
-          <h3 class="text-sm font-semibold text-zinc-700 mb-3">Market Cluster Health</h3>
+        <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+          <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3">Market Cluster Health</h3>
           <%= if @market_health do %>
             <div class="flex items-center gap-3">
               <span class={[
@@ -379,8 +379,8 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         </div>
 
         <%!-- Orderbook --%>
-        <div class="rounded-lg border border-zinc-200 bg-white p-4">
-          <h3 class="text-sm font-semibold text-zinc-700 mb-3">
+        <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+          <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3">
             Orderbook
             <span :if={@orderbook && @orderbook[:token_id]} class="text-xs font-normal text-zinc-400 ml-1">
               (token: <%= String.slice(@orderbook.token_id, 0, 12) %>...)
@@ -421,19 +421,19 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         </div>
 
         <%!-- Current METAR Observation --%>
-        <div class="rounded-lg border border-zinc-200 bg-white p-4">
-          <h3 class="text-sm font-semibold text-zinc-700 mb-3">Current METAR Observation</h3>
+        <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+          <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3">Current METAR Observation</h3>
           <%= if @metar do %>
             <div class="grid grid-cols-3 gap-4">
               <div>
                 <p class="text-xs text-zinc-500">Temperature</p>
-                <p class="text-lg font-bold text-zinc-800">
+                <p class="text-lg font-bold text-zinc-800 dark:text-zinc-200">
                   <%= if @metar.temperature_c, do: "#{round(@metar.temperature_c)}C", else: "-" %>
                 </p>
               </div>
               <div>
                 <p class="text-xs text-zinc-500">Wind</p>
-                <p class="text-lg font-bold text-zinc-800">
+                <p class="text-lg font-bold text-zinc-800 dark:text-zinc-200">
                   <%= if @metar.wind_speed_kt, do: "#{round(@metar.wind_speed_kt)} kt", else: "-" %>
                   <span :if={@metar.wind_direction} class="text-sm font-normal text-zinc-500">
                     @ <%= @metar.wind_direction %>°
@@ -442,7 +442,7 @@ defmodule WeatherEdgeWeb.StationDetailLive do
               </div>
               <div>
                 <p class="text-xs text-zinc-500">Humidity</p>
-                <p class="text-lg font-bold text-zinc-800">
+                <p class="text-lg font-bold text-zinc-800 dark:text-zinc-200">
                   <%= if @metar.humidity, do: "#{@metar.humidity}%", else: "-" %>
                 </p>
               </div>
@@ -456,12 +456,12 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         </div>
 
         <%!-- DB Positions --%>
-        <div :if={@positions != []} class="rounded-lg border border-zinc-200 bg-white p-4">
-          <h3 class="text-sm font-semibold text-zinc-700 mb-3">
+        <div :if={@positions != []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+          <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-3">
             Positions (<%= length(@positions) %>)
           </h3>
           <div class="space-y-3">
-            <div :for={position <- @positions} class="rounded-md border border-zinc-100 bg-zinc-50 p-3">
+            <div :for={position <- @positions} class="rounded-md border border-zinc-100 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-3">
               <div class="grid grid-cols-4 gap-4 text-sm">
                 <div>
                   <p class="text-xs text-zinc-500">Outcome</p>
@@ -495,12 +495,12 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         </div>
 
         <%!-- Sidecar (Polymarket) Positions --%>
-        <div :if={@sidecar_positions != []} class="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+        <div :if={@sidecar_positions != []} class="rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/30 p-4">
           <h3 class="text-sm font-semibold text-indigo-700 mb-3">
             Polymarket Positions (<%= length(@sidecar_positions) %>)
           </h3>
           <div class="space-y-3">
-            <div :for={sp <- @sidecar_positions} class="rounded-md border border-indigo-100 bg-white p-3">
+            <div :for={sp <- @sidecar_positions} class="rounded-md border border-indigo-100 dark:border-indigo-800 bg-white dark:bg-zinc-900 p-3">
               <div class="grid grid-cols-4 gap-4 text-sm">
                 <div>
                   <p class="text-xs text-zinc-500">Outcome</p>

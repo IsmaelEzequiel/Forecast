@@ -12,10 +12,10 @@ defmodule WeatherEdgeWeb.Components.EventCardComponent do
       |> assign(:pnl_pct, calc_pnl_pct(assigns.position))
 
     ~H"""
-    <div class={"rounded border p-3 #{if @position && @position.auto_bought, do: "border-blue-300 bg-blue-50", else: "border-zinc-100 bg-zinc-50"}"}>
+    <div class={"rounded border p-3 #{if @position && @position.auto_bought, do: "border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30", else: "border-zinc-100 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800"}"}>
       <div class="flex items-center justify-between mb-2">
         <div>
-          <span class="text-sm font-medium text-zinc-700">
+          <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             <%= Calendar.strftime(@cluster.target_date, "%b %-d") %>
           </span>
           <span class="text-xs text-zinc-400 ml-1">
@@ -25,7 +25,7 @@ defmodule WeatherEdgeWeb.Components.EventCardComponent do
         <div class="flex items-center gap-2">
           <.link
             navigate={"/stations/#{@station_code}/events/#{@cluster.id}"}
-            class="text-xs text-blue-600 hover:underline"
+            class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
           >
             View Details
           </.link>
@@ -43,15 +43,15 @@ defmodule WeatherEdgeWeb.Components.EventCardComponent do
       <%= if @position do %>
         <div class="mb-2 space-y-1">
           <div class="flex items-center justify-between text-xs">
-            <span class="text-zinc-500">
+            <span class="text-zinc-500 dark:text-zinc-400">
               <%= @position.outcome_label %> (<%= @position.side %>)
             </span>
-            <span class="text-zinc-500">
+            <span class="text-zinc-500 dark:text-zinc-400">
               <%= format_float(@position.tokens) %> tokens
             </span>
           </div>
           <div class="flex items-center justify-between text-xs">
-            <span class="text-zinc-500">
+            <span class="text-zinc-500 dark:text-zinc-400">
               Buy: $<%= format_float(@position.avg_buy_price) %>
               <span :if={@position.current_price}>
                 / Now: $<%= format_float(@position.current_price) %>
@@ -62,11 +62,11 @@ defmodule WeatherEdgeWeb.Components.EventCardComponent do
             </span>
           </div>
 
-          <div :if={@position.recommendation} class="text-xs font-medium text-amber-700 mt-1">
+          <div :if={@position.recommendation} class="text-xs font-medium text-amber-700 dark:text-amber-400 mt-1">
             <%= @position.recommendation %>
           </div>
 
-          <div :if={@position.auto_bought} class="text-xs text-blue-600 mt-1">
+          <div :if={@position.auto_bought} class="text-xs text-blue-600 dark:text-blue-400 mt-1">
             Auto-bought
           </div>
 
@@ -79,7 +79,7 @@ defmodule WeatherEdgeWeb.Components.EventCardComponent do
               SELL
             </button>
             <button
-              class="rounded bg-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-300"
+              class="rounded bg-zinc-200 dark:bg-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-600"
               disabled
             >
               HOLD
@@ -88,8 +88,8 @@ defmodule WeatherEdgeWeb.Components.EventCardComponent do
         </div>
       <% end %>
 
-      <div :if={@cluster.outcomes} class="text-xs text-zinc-500">
-        <span class="font-medium text-zinc-600">Top outcomes:</span>
+      <div :if={@cluster.outcomes} class="text-xs text-zinc-500 dark:text-zinc-400">
+        <span class="font-medium text-zinc-600 dark:text-zinc-300">Top outcomes:</span>
         <%= for outcome <- top_outcomes(@cluster.outcomes, 2) do %>
           <span class="ml-1"><%= outcome["outcome_label"] %> (<%= format_price(outcome["yes_price"]) %>)</span>
         <% end %>

@@ -2,17 +2,22 @@ defmodule WeatherEdge.Probability.Engine do
   @moduledoc """
   Probability engine that combines multi-model forecasts into a
   probability distribution across temperature outcomes.
+
+  Supports accuracy-weighted ensemble: models with lower historical MAE
+  get higher weight in the distribution. Falls back to equal weighting
+  when no accuracy data is available.
   """
 
   alias WeatherEdge.Forecasts
   alias WeatherEdge.Probability.{Distribution, Gaussian}
+  alias WeatherEdge.Calibration.BiasTracker
 
   @doc """
   Computes a probability distribution for temperature outcomes given a station and target date.
 
   1. Fetches the latest forecast snapshot per model
-  2. Rounds each model's max temp to nearest integer
-  3. Builds empirical distribution from frequency counts
+  2. Weights each model by inverse MAE (if accuracy data exists)
+  3. Builds weighted empirical distribution
   4. Applies Gaussian smoothing
   5. Collapses tails into edge buckets
   6. Normalizes to sum = 1.0
@@ -31,15 +36,40 @@ defmodule WeatherEdge.Probability.Engine do
       upper_bound = Keyword.get(opts, :upper_bound)
       unit = Keyword.get(opts, :temp_unit, "C")
 
+      model_weights = compute_model_weights(station_code)
+
       distribution =
         snapshots
         |> extract_temps(unit)
-        |> build_empirical()
+        |> build_weighted_empirical(snapshots, model_weights)
         |> Gaussian.apply_kernel(sigma)
         |> collapse_tails(lower_bound, upper_bound, unit)
         |> to_distribution()
 
       {:ok, distribution}
+    end
+  end
+
+  defp compute_model_weights(station_code) do
+    stats = BiasTracker.stats_for_station(station_code)
+
+    case stats do
+      %{count: count, model_stats: model_stats} when count >= 3 and map_size(model_stats) > 0 ->
+        # Inverse MAE weighting: lower error = higher weight
+        inverse_maes =
+          Map.new(model_stats, fn {model, %{mae: mae}} ->
+            {model, 1.0 / max(mae, 0.5)}
+          end)
+
+        total = inverse_maes |> Map.values() |> Enum.sum()
+
+        Map.new(inverse_maes, fn {model, inv_mae} ->
+          {model, inv_mae / total}
+        end)
+
+      _ ->
+        # Not enough data — equal weighting
+        %{}
     end
   end
 
@@ -50,12 +80,28 @@ defmodule WeatherEdge.Probability.Engine do
     end)
   end
 
-  defp build_empirical(temps) do
+  defp build_weighted_empirical(temps, _snapshots, model_weights) when model_weights == %{} do
+    # Equal weighting fallback
     total = length(temps)
 
     temps
     |> Enum.frequencies()
     |> Map.new(fn {temp, count} -> {temp, count / total} end)
+  end
+
+  defp build_weighted_empirical(_temps, snapshots, model_weights) do
+    # Weighted: each model's temp gets its accuracy-based weight
+    total_weight =
+      Enum.reduce(snapshots, 0.0, fn s, acc ->
+        acc + Map.get(model_weights, s.model, 1.0 / map_size(model_weights))
+      end)
+
+    Enum.reduce(snapshots, %{}, fn snapshot, acc ->
+      temp = round(snapshot.max_temp_c)
+      weight = Map.get(model_weights, snapshot.model, 1.0 / map_size(model_weights))
+      normalized_weight = weight / total_weight
+      Map.update(acc, temp, normalized_weight, &(&1 + normalized_weight))
+    end)
   end
 
   defp collapse_tails(prob_map, nil, nil, unit), do: label_outcomes(prob_map, unit)

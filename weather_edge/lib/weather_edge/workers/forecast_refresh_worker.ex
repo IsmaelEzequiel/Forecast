@@ -22,8 +22,12 @@ defmodule WeatherEdge.Workers.ForecastRefreshWorker do
 
     Enum.each(station_codes, fn code ->
       case Stations.get_by_code(code) do
-        {:ok, station} -> refresh_station(station)
-        {:error, :not_found} -> Logger.warning("ForecastRefresh: Station #{code} not found")
+        {:ok, station} ->
+          refresh_station(station)
+          WeatherEdge.StationHealth.refresh(station.code)
+
+        {:error, :not_found} ->
+          Logger.warning("ForecastRefresh: Station #{code} not found")
       end
     end)
 
