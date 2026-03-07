@@ -109,7 +109,7 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
             |> Regex.escape()
             |> String.replace("\\*", ".*")
 
-          Regex.match?(~r/#{slug_regex}/i, slug)
+          Regex.match?(~r/^#{slug_regex}$/i, slug)
       end
 
     slug_match
