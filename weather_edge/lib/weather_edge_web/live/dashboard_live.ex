@@ -55,7 +55,8 @@ defmodule WeatherEdgeWeb.DashboardLive do
        modal_error: nil,
        modal_station_info: nil,
        modal_temp_unit: "C",
-       signal_filter: "all"
+       signal_filter: "all",
+       signal_limit: 20
      )}
   end
 
@@ -285,7 +286,23 @@ defmodule WeatherEdgeWeb.DashboardLive do
   end
 
   def handle_event("filter_signals", %{"filter" => filter}, socket) do
-    {:noreply, assign(socket, signal_filter: filter)}
+    {:noreply, assign(socket, signal_filter: filter, signal_limit: 20)}
+  end
+
+  def handle_event("load_more_signals", _params, socket) do
+    new_limit = socket.assigns.signal_limit + 20
+    total = length(socket.assigns.signals)
+
+    # If we need more from DB, fetch them
+    socket =
+      if new_limit > total do
+        signals = WeatherEdge.Signals.list_recent(limit: new_limit)
+        assign(socket, signals: signals)
+      else
+        socket
+      end
+
+    {:noreply, assign(socket, signal_limit: new_limit)}
   end
 
   def handle_event("scan_station", %{"code" => code}, socket) do
@@ -348,7 +365,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
         <p class="text-lg">No stations yet. Add one to get started.</p>
       </div>
 
-      <.signal_feed signals={@signals} filter={@signal_filter} />
+      <.signal_feed signals={@signals} filter={@signal_filter} limit={@signal_limit} />
 
       <.add_station_modal
         show={@show_add_station_modal}

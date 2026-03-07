@@ -262,9 +262,19 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         <h1 class="text-2xl font-bold text-zinc-900">
           <%= @station.code %> - <%= @station.city %>
         </h1>
-        <span :if={@cluster} class="text-sm text-zinc-500">
-          Target: <%= @cluster.target_date %> (<%= Date.diff(@cluster.target_date, Date.utc_today()) %> days)
-        </span>
+        <div class="flex items-center gap-3">
+          <span :if={@cluster} class="text-sm text-zinc-500">
+            Target: <%= @cluster.target_date %> (<%= Date.diff(@cluster.target_date, Date.utc_today()) %> days)
+          </span>
+          <a
+            :if={@cluster && @cluster.event_slug}
+            href={"https://polymarket.com/event/#{@cluster.event_slug}"}
+            target="_blank"
+            class="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 transition-colors"
+          >
+            Open on Polymarket ↗
+          </a>
+        </div>
       </div>
 
       <div :if={@loading} class="text-center py-12 text-zinc-400">
