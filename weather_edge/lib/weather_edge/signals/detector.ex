@@ -34,16 +34,28 @@ defmodule WeatherEdge.Signals.Detector do
           {:ok, [signal()], [atom()]}
   def detect_mispricings(%MarketCluster{outcomes: outcomes} = cluster, %Distribution{} = dist, opts \\ [])
       when is_list(outcomes) do
-    flags = check_structural_mispricing(outcomes)
-    observed_high_c = Keyword.get(opts, :observed_high_c)
-    confidence = Keyword.get(opts, :confidence, "forecast")
+    # If any outcome has YES price >= 0.95, the market is effectively resolved — skip entirely
+    if cluster_resolved?(outcomes) do
+      {:ok, [], [:cluster_resolved]}
+    else
+      flags = check_structural_mispricing(outcomes)
+      observed_high_c = Keyword.get(opts, :observed_high_c)
+      confidence = Keyword.get(opts, :confidence, "forecast")
 
-    signals =
-      outcomes
-      |> Enum.map(fn outcome -> analyze_outcome(outcome, dist, observed_high_c, cluster, confidence) end)
-      |> Enum.filter(fn signal -> signal != nil end)
+      signals =
+        outcomes
+        |> Enum.map(fn outcome -> analyze_outcome(outcome, dist, observed_high_c, cluster, confidence) end)
+        |> Enum.filter(fn signal -> signal != nil end)
 
-    {:ok, signals, flags}
+      {:ok, signals, flags}
+    end
+  end
+
+  defp cluster_resolved?(outcomes) do
+    Enum.any?(outcomes, fn o ->
+      yes_price = Map.get(o, "yes_price", 0.0)
+      is_number(yes_price) and yes_price >= 0.95
+    end)
   end
 
   defp analyze_outcome(outcome, dist, observed_high_c, cluster, confidence) do
