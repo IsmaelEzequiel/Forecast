@@ -508,6 +508,20 @@ defmodule WeatherEdgeWeb.SignalsLive do
               station={@detail_data.station}
             />
 
+            <.distribution_chart_section
+              distribution={@detail_data.distribution}
+              cluster={@detail_data.cluster}
+            />
+
+            <.edge_history_chart_section
+              edge_history={@detail_data.edge_history}
+            />
+
+            <.price_history_chart_section
+              price_history={@detail_data.price_history}
+              position={@detail_data.position}
+            />
+
             <.distribution_section
               distribution={@detail_data.distribution}
               cluster={@detail_data.cluster}
@@ -559,6 +573,118 @@ defmodule WeatherEdgeWeb.SignalsLive do
         <span class={["px-1.5 py-0.5 rounded text-[10px] font-medium", confidence_class(@signal.confidence)]}>
           <%= @signal.confidence || "-" %>
         </span>
+      </div>
+    </div>
+    """
+  end
+
+  defp distribution_chart_section(assigns) do
+    has_data = assigns.distribution != nil
+
+    chart_data =
+      if has_data do
+        sorted =
+          assigns.distribution.probabilities
+          |> Enum.sort_by(fn {_label, prob} -> prob end, :desc)
+
+        labels = Enum.map(sorted, fn {label, _prob} -> label end)
+        model_probs = Enum.map(sorted, fn {_label, prob} -> Float.round(prob, 4) end)
+        market_prices_map = build_market_price_map(assigns.cluster.outcomes)
+
+        market_prices =
+          Enum.map(labels, fn label -> Float.round(Map.get(market_prices_map, label, 0) * 1.0, 4) end)
+
+        Jason.encode!(%{labels: labels, model_probs: model_probs, market_prices: market_prices})
+      end
+
+    assigns =
+      assigns
+      |> assign(:has_data, has_data)
+      |> assign(:chart_data, chart_data)
+
+    ~H"""
+    <div class="space-y-2">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Cluster Distribution</h3>
+      <div :if={!@has_data} class="text-xs text-zinc-400">No distribution data available</div>
+      <div :if={@has_data} class="h-48">
+        <canvas
+          id="distribution-chart"
+          phx-hook="ChartHook"
+          data-chart-type="distribution"
+          data-chart-data={@chart_data}
+          class="w-full h-full"
+        />
+      </div>
+    </div>
+    """
+  end
+
+  defp edge_history_chart_section(assigns) do
+    has_data = assigns.edge_history != []
+
+    chart_data =
+      if has_data do
+        times = Enum.map(assigns.edge_history, fn h -> Calendar.strftime(h.time, "%H:%M") end)
+        edges = Enum.map(assigns.edge_history, fn h -> Float.round(h.edge * 100, 1) end)
+        model_probs = Enum.map(assigns.edge_history, fn h -> Float.round(h.model_prob * 100, 1) end)
+        market_prices = Enum.map(assigns.edge_history, fn h -> Float.round(h.market_price * 100, 1) end)
+
+        Jason.encode!(%{times: times, edges: edges, model_probs: model_probs, market_prices: market_prices})
+      end
+
+    assigns =
+      assigns
+      |> assign(:has_data, has_data)
+      |> assign(:chart_data, chart_data)
+
+    ~H"""
+    <div class="space-y-2">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Edge History (24h)</h3>
+      <div :if={!@has_data} class="text-xs text-zinc-400">No edge history available</div>
+      <div :if={@has_data} class="h-48">
+        <canvas
+          id="edge-history-chart"
+          phx-hook="ChartHook"
+          data-chart-type="edge_history"
+          data-chart-data={@chart_data}
+          class="w-full h-full"
+        />
+      </div>
+    </div>
+    """
+  end
+
+  defp price_history_chart_section(assigns) do
+    has_data = assigns.price_history != []
+
+    chart_data =
+      if has_data do
+        times = Enum.map(assigns.price_history, fn h -> Calendar.strftime(h.time, "%H:%M") end)
+        prices = Enum.map(assigns.price_history, fn h -> Float.round(h.yes_price * 1.0, 4) end)
+
+        buy_price =
+          if assigns.position, do: assigns.position.avg_buy_price
+
+        Jason.encode!(%{times: times, prices: prices, buy_price: buy_price})
+      end
+
+    assigns =
+      assigns
+      |> assign(:has_data, has_data)
+      |> assign(:chart_data, chart_data)
+
+    ~H"""
+    <div class="space-y-2">
+      <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Price History (48h)</h3>
+      <div :if={!@has_data} class="text-xs text-zinc-400">No price history available</div>
+      <div :if={@has_data} class="h-48">
+        <canvas
+          id="price-history-chart"
+          phx-hook="ChartHook"
+          data-chart-type="price_history"
+          data-chart-data={@chart_data}
+          class="w-full h-full"
+        />
       </div>
     </div>
     """

@@ -12,6 +12,8 @@ defmodule WeatherEdge.Signals.DetailData do
   alias WeatherEdge.Forecasts
   alias WeatherEdge.Forecasts.MetarClient
   alias WeatherEdge.Trading.ClobClient
+  alias WeatherEdge.Signals.Queries
+  alias WeatherEdge.Markets
 
   def fetch_signal_detail(signal_id) do
     case load_signal_with_joins(signal_id) do
@@ -25,12 +27,20 @@ defmodule WeatherEdge.Signals.DetailData do
         metar = fetch_metar(signal.station_code, cluster.target_date)
         balance = :persistent_term.get(:sidecar_balance, nil)
 
+        edge_history =
+          Queries.edge_history(signal.station_code, signal.market_cluster_id, signal.outcome_label)
+
+        price_history =
+          Markets.price_history(signal.market_cluster_id, signal.outcome_label)
+
         Map.merge(base, %{
           distribution: distribution,
           model_breakdown: model_breakdown,
           orderbook: orderbook,
           metar: metar,
-          balance: balance
+          balance: balance,
+          edge_history: edge_history,
+          price_history: price_history
         })
     end
   end

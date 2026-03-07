@@ -585,3 +585,61 @@
   - Phoenix CoreComponents modal close button uses JS commands, not simple phx-click - use `render_hook(view, "close_add_station_modal", %{})` to test close
   - LiveView tests: use `element("button", "text")` to find buttons by visible text, more reliable than attribute selectors
 ---
+
+## 2026-03-07 - US-008
+- Implemented: Signal Detail Panel slide-in with data loading module and full UI
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/detail_data.ex` - New DetailData module with fetch_signal_detail/1: loads signal with joins (cluster, station, position), fetches distribution via Engine, model breakdown via Forecasts, orderbook via ClobClient, METAR conditions (only for today/tomorrow targets), balance from persistent_term
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added detail panel slide-in UI: fixed right panel (w-2/5, z-50) with close button and click-outside overlay, async data loading via send(self(), {:load_detail, signal_id}), sections for header (station/outcome/edge/alert/confidence), cluster distribution (model prob blue bars vs market price orange bars with edge delta), model breakdown (per-model max_temp_c with consensus count), orderbook (best bid/ask/spread), METAR conditions (current temp + today's max observed), position (tokens/avg_buy/current/unrealized P&L), Polymarket link
+- **Learnings for future iterations:**
+  - DetailData uses same join pattern as Queries module but fetches a single signal by ID
+  - Async detail loading pattern: open_detail sets detail_loading=true, sends message to self, handle_info fetches data and sets detail_loading=false
+  - Guard against stale loads: handle_info checks detail_signal_id still matches before applying data
+  - Orderbook response may use string keys or atom keys - parse_orderbook handles both patterns
+  - METAR is only fetched when target_date is today or tomorrow (no point fetching current conditions for future dates)
+  - Click-outside overlay uses a separate div with z-40 behind the panel (z-50) to catch clicks
+---
+
+## 2026-03-07 - US-009
+- Implemented: Buy controls in the Signal Detail Panel with configurable amount, estimates, and order execution
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added buy_controls_section component (amount input defaulting to station buy_amount_usdc, estimated tokens/payout/return display, BUY YES and BUY NO buttons), update_buy_amount event handler, buy_from_detail event handler (executes order via OrderManager.place_buy_order, reloads detail data and signals on success, flashes error on failure), detail_buy_amount assign, format_return helper
+- **Learnings for future iterations:**
+  - Reuse existing build_outcome/find_token_id patterns from batch buy for single-order detail panel buys
+  - detail_buy_amount is reset to nil on each open_detail so station default is used
+  - After successful buy, reload both detail data and signals list to reflect new position
+---
+
+## 2026-03-07 - US-010
+- Implemented: Chart.js integration via CDN + LiveView ChartHook + edge_history and price_history queries
+- Files changed:
+  - `weather_edge/lib/weather_edge_web/components/layouts/root.html.heex` - Added Chart.js CDN script tag (v4.4.7)
+  - `weather_edge/assets/js/app.js` - Added ChartHook with three chart type configs: distribution (horizontal bar with model prob blue + market price orange), edge_history (line chart with edge/model_prob/market_price), price_history (line chart with YES price + optional buy price marker)
+  - `weather_edge/lib/weather_edge/signals/queries.ex` - Added edge_history/4 returning %{time, edge, model_prob, market_price} for last N hours
+  - `weather_edge/lib/weather_edge/markets.ex` - Added price_history/3 returning %{time, yes_price} for last N hours from market_snapshots
+- **Learnings for future iterations:**
+  - No npm/package.json in this project - use CDN for JS libraries
+  - Chart.js CDN must load before app.js (non-defer) so `Chart` global is available to hooks
+  - ChartHook reads config from data attributes (data-chart-type, data-chart-data) and supports mounted/updated/destroyed lifecycle
+  - edge_history goes in Signals.Queries (queries signals table), price_history goes in Markets context (queries market_snapshots table)
+---
+
+## 2026-03-07 - US-011
+- Implemented: Charts rendered in Detail Panel using Chart.js hooks
+- What was implemented:
+  - Three chart sections added to detail panel: Cluster Distribution (horizontal bar), Edge History (24h line), Price History (48h line)
+  - DetailData.fetch_signal_detail now fetches edge_history and price_history data
+  - Charts use phx-hook="ChartHook" with JSON-encoded data in data attributes
+  - Distribution chart: horizontal bar comparing model probability vs market price per outcome
+  - Edge history chart: line chart showing edge %, model prob %, and market price over 24h
+  - Price history chart: line chart showing YES price over 48h with buy price marker if position exists
+  - Charts update when detail panel reloads (no phx-update="ignore", hooks handle mounted/updated lifecycle)
+- Files changed:
+  - `weather_edge/lib/weather_edge/signals/detail_data.ex` - Added edge_history and price_history fetching via Queries and Markets modules
+  - `weather_edge/lib/weather_edge_web/live/signals_live.ex` - Added distribution_chart_section/1, edge_history_chart_section/1, price_history_chart_section/1 components with canvas elements and ChartHook
+- **Learnings for future iterations:**
+  - Chart canvas elements should NOT use phx-update="ignore" when data changes between renders (e.g., switching signals) — the hook's updated() callback handles re-rendering
+  - Use Jason.encode! to pass chart data as JSON in data-chart-data attribute
+  - Chart data should be pre-computed (e.g., edge * 100 for percentages) before encoding to avoid JS-side transformations
+  - The existing text-based distribution_section was kept alongside the chart version for accessibility/detail
+---
