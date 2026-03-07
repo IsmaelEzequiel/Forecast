@@ -71,7 +71,7 @@ config :weather_edge, Oban,
 
 # Trading safety config
 config :weather_edge, :trading,
-  min_reserve_usdc: 2.0,
+  min_reserve_usdc: 0.50,
   max_orders_per_minute: 6,
   max_position_per_event: 1,
   order_retry_delay_ms: 30_000

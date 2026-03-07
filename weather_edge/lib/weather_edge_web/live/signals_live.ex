@@ -1387,7 +1387,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
         acc + (row.station.buy_amount_usdc || 5.0)
       end)
 
-    min_reserve = 2.0
+    min_reserve = Application.get_env(:weather_edge, :trading)[:min_reserve_usdc] || 0.50
 
     cond do
       selected_count == 0 ->
