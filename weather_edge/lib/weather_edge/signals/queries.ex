@@ -76,6 +76,7 @@ defmodule WeatherEdge.Signals.Queries do
           p.status == "open",
       where: s.id in subquery(latest_ids),
       where: mc.resolved == false,
+      where: mc.target_date >= ^Date.utc_today(),
       select: %{
         id: s.id,
         computed_at: s.computed_at,
