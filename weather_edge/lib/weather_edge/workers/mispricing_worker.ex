@@ -107,7 +107,20 @@ defmodule WeatherEdge.Workers.MispricingWorker do
         [confidence: confidence]
       end
 
-    case Engine.compute_distribution(cluster.station_code, cluster.target_date) do
+    # Build distribution with correct temp unit and outcome bounds
+    temp_unit =
+      case Stations.get_by_code(cluster.station_code) do
+        {:ok, station} -> station.temp_unit || "C"
+        _ -> "C"
+      end
+    {lower, upper} = extract_outcome_bounds(cluster.outcomes, temp_unit)
+
+    dist_opts =
+      [temp_unit: temp_unit]
+      |> then(fn opts -> if lower, do: [{:lower_bound, lower} | opts], else: opts end)
+      |> then(fn opts -> if upper, do: [{:upper_bound, upper} | opts], else: opts end)
+
+    case Engine.compute_distribution(cluster.station_code, cluster.target_date, dist_opts) do
       {:ok, distribution} ->
         case Detector.detect_mispricings(cluster, distribution, detector_opts) do
           {:ok, signals, _flags} when signals != [] ->
@@ -139,6 +152,37 @@ defmodule WeatherEdge.Workers.MispricingWorker do
         "MispricingWorker: Error processing cluster #{cluster.id}: #{Exception.message(e)}"
       )
   end
+
+  # Extract lower/upper bounds from market outcomes.
+  # Polymarket outcomes like "33°F or below" → lower=33, "48°F or higher" → upper=48
+  defp extract_outcome_bounds(outcomes, _temp_unit) when is_list(outcomes) do
+    labels =
+      Enum.map(outcomes, fn o ->
+        o["outcome_label"] || o["label"] || ""
+      end)
+
+    lower =
+      labels
+      |> Enum.find_value(fn label ->
+        case Regex.run(~r/(-?\d+)\s*°?\s*[CF]\s+or below/i, label) do
+          [_, temp] -> String.to_integer(temp)
+          _ -> nil
+        end
+      end)
+
+    upper =
+      labels
+      |> Enum.find_value(fn label ->
+        case Regex.run(~r/(-?\d+)\s*°?\s*[CF]\s+or higher/i, label) do
+          [_, temp] -> String.to_integer(temp)
+          _ -> nil
+        end
+      end)
+
+    {lower, upper}
+  end
+
+  defp extract_outcome_bounds(_, _), do: {nil, nil}
 
   # Adaptive scanning: post-peak scans every run (every 5 min from cron),
   # near-peak every run, pre-peak every other run, night every third run.

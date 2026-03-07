@@ -2132,8 +2132,14 @@ defmodule WeatherEdgeWeb.SignalsLive do
         # Peak status
         peak = export_peak_status(station_code)
 
-        # Distribution from engine
-        distribution = export_distribution(station_code, target_date)
+        # Distribution from engine (with correct temp unit)
+        temp_unit =
+          case Stations.get_by_code(station_code) do
+            {:ok, s} -> s.temp_unit || "C"
+            _ -> "C"
+          end
+
+        distribution = export_distribution(station_code, target_date, temp_unit)
 
         Enum.map(rows, fn row ->
           %{
@@ -2227,10 +2233,10 @@ defmodule WeatherEdgeWeb.SignalsLive do
     end
   end
 
-  defp export_distribution(_station_code, nil), do: %{error: "no target date"}
+  defp export_distribution(_station_code, nil, _temp_unit), do: %{error: "no target date"}
 
-  defp export_distribution(station_code, target_date) do
-    case WeatherEdge.Probability.Engine.compute_distribution(station_code, target_date) do
+  defp export_distribution(station_code, target_date, temp_unit) do
+    case WeatherEdge.Probability.Engine.compute_distribution(station_code, target_date, temp_unit: temp_unit) do
       {:ok, dist} ->
         probs =
           dist.probabilities

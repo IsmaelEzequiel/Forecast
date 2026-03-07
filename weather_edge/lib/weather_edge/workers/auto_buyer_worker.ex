@@ -48,7 +48,7 @@ defmodule WeatherEdge.Workers.AutoBuyerWorker do
 
   defp run_auto_buy_execution(station, cluster) do
     with :ok <- fetch_and_store_forecasts(station, cluster.target_date),
-         {:ok, distribution} <- Engine.compute_distribution(station.code, cluster.target_date) do
+         {:ok, distribution} <- Engine.compute_distribution(station.code, cluster.target_date, temp_unit: station.temp_unit || "C") do
       {top_label, top_prob} = Distribution.top_outcome(distribution)
 
       Logger.info(

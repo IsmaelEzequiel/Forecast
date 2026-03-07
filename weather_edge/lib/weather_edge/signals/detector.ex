@@ -76,30 +76,36 @@ defmodule WeatherEdge.Signals.Detector do
       model_prob =
         case observed_override(short_label, observed_high_c, cluster) do
           {:resolved, prob} -> prob
-          :use_model -> Distribution.probability_for(dist, short_label)
+          :use_model -> lookup_probability(dist, short_label)
         end
 
-      edge_yes = model_prob - yes_price
-      edge_no = (1.0 - model_prob) - no_price
+      # Skip when both model and market agree the outcome is near-impossible.
+      # NO edge on these is fake (e.g., buy NO at $0.002 on a dead outcome = no alpha).
+      if model_prob < 0.02 and yes_price <= 0.02 do
+        nil
+      else
+        edge_yes = model_prob - yes_price
+        edge_no = (1.0 - model_prob) - no_price
 
-      {edge, side} = pick_best_side(edge_yes, edge_no)
+        {edge, side} = pick_best_side(edge_yes, edge_no)
 
-      market_price = if side == "YES", do: yes_price, else: no_price
+        market_price = if side == "YES", do: yes_price, else: no_price
 
-      alert_level = determine_alert_level(model_prob, edge, liquidity, market_price, side)
+        alert_level = determine_alert_level(model_prob, edge, liquidity, market_price, side)
 
-      if alert_level do
-        %{
-          outcome_label: label,
-          model_probability: model_prob,
-          market_yes_price: yes_price,
-          market_no_price: no_price,
-          edge: edge,
-          recommended_side: side,
-          alert_level: alert_level,
-          confidence: confidence,
-          liquidity: liquidity
-        }
+        if alert_level do
+          %{
+            outcome_label: label,
+            model_probability: model_prob,
+            market_yes_price: yes_price,
+            market_no_price: no_price,
+            edge: edge,
+            recommended_side: side,
+            alert_level: alert_level,
+            confidence: confidence,
+            liquidity: liquidity
+          }
+        end
       end
     end
   end
@@ -162,6 +168,31 @@ defmodule WeatherEdge.Signals.Detector do
   defp convert_temp(temp_c, "F"), do: round(temp_c * 9 / 5 + 32)
   defp convert_temp(temp_c, _), do: round(temp_c)
 
+  # Looks up probability, handling range labels like "42-43F" by summing individual degrees
+  defp lookup_probability(dist, label) do
+    # Try exact match first
+    prob = Distribution.probability_for(dist, label)
+
+    if prob > 0.0 do
+      prob
+    else
+      # Try range expansion: "42-43F" → sum of "42F" + "43F"
+      case Regex.run(~r/^(-?\d+)-(-?\d+)([CF])$/i, label) do
+        [_, low_str, high_str, unit] ->
+          low = String.to_integer(low_str)
+          high = String.to_integer(high_str)
+          u = String.upcase(unit)
+
+          Enum.reduce(low..high, 0.0, fn temp, acc ->
+            acc + Distribution.probability_for(dist, "#{temp}#{u}")
+          end)
+
+        _ ->
+          0.0
+      end
+    end
+  end
+
   defp pick_best_side(edge_yes, edge_no) do
     cond do
       edge_yes >= edge_no and edge_yes > 0 -> {edge_yes, "YES"}
@@ -191,15 +222,24 @@ defmodule WeatherEdge.Signals.Detector do
   end
 
   defp extract_temp_label(label) when is_binary(label) do
-    case Regex.run(~r/(\d+)\s*°?\s*([CF])\s+(or below|or higher)/i, label) do
-      [_, temp, unit, suffix] ->
+    cond do
+      # "X°C or below" / "X°F or higher"
+      match = Regex.run(~r/(-?\d+)\s*°?\s*([CF])\s+(or below|or higher)/i, label) ->
+        [_, temp, unit, suffix] = match
         "#{temp}#{String.upcase(unit)} #{String.downcase(suffix)}"
 
-      _ ->
-        case Regex.run(~r/(\d+)\s*°?\s*([CF])/i, label) do
-          [_, temp, unit] -> "#{temp}#{String.upcase(unit)}"
-          _ -> label
-        end
+      # "between X-Y°F" range outcomes
+      match = Regex.run(~r/(-?\d+)\s*-\s*(-?\d+)\s*°?\s*([CF])/i, label) ->
+        [_, low, high, unit] = match
+        "#{low}-#{high}#{String.upcase(unit)}"
+
+      # Simple "X°C" / "X°F"
+      match = Regex.run(~r/(-?\d+)\s*°?\s*([CF])/i, label) ->
+        [_, temp, unit] = match
+        "#{temp}#{String.upcase(unit)}"
+
+      true ->
+        label
     end
   end
 
