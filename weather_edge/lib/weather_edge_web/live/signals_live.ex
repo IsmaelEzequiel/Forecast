@@ -1225,7 +1225,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
     <div class="space-y-3 border-t border-zinc-200 dark:border-zinc-700 pt-4">
       <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Buy</h3>
 
-      <div class="space-y-2">
+      <form phx-change="update_buy_amount" class="space-y-2">
         <div class="space-y-1">
           <label class="text-xs text-zinc-500 dark:text-zinc-400">Amount (USDC)</label>
           <input
@@ -1234,7 +1234,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
             value={@amount}
             min="0.1"
             step="0.5"
-            phx-change="update_buy_amount"
+            phx-debounce="300"
             class="block w-full text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           />
         </div>
@@ -1256,6 +1256,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
         <div class="flex gap-2 pt-1">
           <button
+            type="button"
             phx-click="buy_from_detail"
             phx-value-side="YES"
             disabled={@buying}
@@ -1264,6 +1265,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
             <%= if @buying, do: "Placing...", else: "BUY YES" %>
           </button>
           <button
+            type="button"
             phx-click="buy_from_detail"
             phx-value-side="NO"
             disabled={@buying}
@@ -1272,7 +1274,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
             <%= if @buying, do: "Placing...", else: "BUY NO" %>
           </button>
         </div>
-      </div>
+      </form>
     </div>
     """
   end
