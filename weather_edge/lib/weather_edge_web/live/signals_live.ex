@@ -67,7 +67,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="space-y-4">
+    <div class="space-y-4 pb-24">
       <.dashboard_header balance={@balance} wallet_address={@wallet_address} />
 
       <div class="sticky top-0 z-30 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 space-y-3">
@@ -695,14 +695,13 @@ defmodule WeatherEdgeWeb.SignalsLive do
     assigns = assign(assigns, :active_count, active_count)
 
     ~H"""
-    <div class="flex-1 space-y-3">
+    <form phx-change="update_filter" class="flex-1 space-y-3">
       <div class="flex flex-wrap gap-3 items-end">
         <div class="space-y-1">
           <label class="text-xs text-zinc-500 dark:text-zinc-400">Stations</label>
           <select
             name="stations"
             multiple
-            phx-change="update_filter"
             class="block w-40 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           >
             <option
@@ -724,7 +723,6 @@ defmodule WeatherEdgeWeb.SignalsLive do
             min="0"
             max="60"
             step="1"
-            phx-change="update_filter"
             class="block w-20 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           />
         </div>
@@ -733,7 +731,6 @@ defmodule WeatherEdgeWeb.SignalsLive do
           <label class="text-xs text-zinc-500 dark:text-zinc-400">Resolution</label>
           <select
             name="resolution_date"
-            phx-change="update_filter"
             class="block w-28 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           >
             <option :for={{val, label} <- [{"all", "All"}, {"today", "Today"}, {"tomorrow", "Tomorrow"}, {"+2d", "+2d"}, {"+3d", "+3d"}]} value={val} selected={@filters.resolution_date == val}>
@@ -746,7 +743,6 @@ defmodule WeatherEdgeWeb.SignalsLive do
           <label class="text-xs text-zinc-500 dark:text-zinc-400">Side</label>
           <select
             name="side"
-            phx-change="update_filter"
             class="block w-20 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           >
             <option :for={{val, label} <- [{"all", "All"}, {"YES", "YES"}, {"NO", "NO"}]} value={val} selected={@filters.side == val}>
@@ -765,7 +761,6 @@ defmodule WeatherEdgeWeb.SignalsLive do
             max="1"
             step="0.01"
             placeholder="Any"
-            phx-change="update_filter"
             class="block w-20 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           />
         </div>
@@ -774,7 +769,6 @@ defmodule WeatherEdgeWeb.SignalsLive do
           <label class="text-xs text-zinc-500 dark:text-zinc-400">Alert Level</label>
           <select
             name="alert_level"
-            phx-change="update_filter"
             class="block w-28 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           >
             <option
@@ -791,7 +785,6 @@ defmodule WeatherEdgeWeb.SignalsLive do
           <label class="text-xs text-zinc-500 dark:text-zinc-400">Sort</label>
           <select
             name="sort_by"
-            phx-change="update_filter"
             class="block w-36 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           >
             <option
@@ -808,7 +801,6 @@ defmodule WeatherEdgeWeb.SignalsLive do
           <label class="text-xs text-zinc-500 dark:text-zinc-400">Position</label>
           <select
             name="has_position"
-            phx-change="update_filter"
             class="block w-32 text-xs rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 p-1.5"
           >
             <option :for={{val, label} <- [{"all", "All"}, {"with_position", "With Position"}, {"without_position", "Without Position"}]} value={val} selected={@filters.has_position == val}>
@@ -839,7 +831,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
           Clear All
         </button>
       </div>
-    </div>
+    </form>
     """
   end
 
