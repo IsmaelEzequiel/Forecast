@@ -64,11 +64,11 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
         "icon_global" -> {"/dwd-icon", []}
         "jma" -> {"/jma", []}
         "gem_global" -> {"/gem", []}
-        "ukmo" -> {"/ukmo", []}
+        "ukmo" -> {"/forecast", [models: "ukmo_seamless"]}
         "arpege" -> {"/meteofrance", []}
         "bom_access_global" -> {"/bom", []}
         "cma_grapes_global" -> {"/cma", []}
-        "kma_gdps" -> {"/forecast", [models: "kma_gdps"]}
+        "kma_gdps" -> {"/forecast", [models: "kma_seamless"]}
         _ -> {"/forecast", []}
       end
 
