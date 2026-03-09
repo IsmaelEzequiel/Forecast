@@ -4,7 +4,8 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
   Fetches hourly temperature forecasts from multiple weather models.
   """
 
-  @models ["gfs", "ecmwf_ifs", "icon_global", "jma", "gem_global", "ukmo", "arpege"]
+  @models ["gfs", "ecmwf_ifs", "icon_global", "jma", "gem_global", "ukmo", "arpege",
+           "bom_access_global", "cma_grapes_global", "kma_gdps"]
 
   require Logger
 
@@ -65,6 +66,9 @@ defmodule WeatherEdge.Forecasts.OpenMeteoClient do
         "gem_global" -> {"/gem", []}
         "ukmo" -> {"/ukmo", []}
         "arpege" -> {"/meteofrance", []}
+        "bom_access_global" -> {"/bom", []}
+        "cma_grapes_global" -> {"/cma", []}
+        "kma_gdps" -> {"/forecast", [models: "kma_gdps"]}
         _ -> {"/forecast", []}
       end
 
