@@ -52,10 +52,10 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
   defp fetch_events_for_station(station) do
     case station.tag_slug do
       nil ->
-        GammaClient.get_events(active: true, closed: false, limit: 50)
+        GammaClient.get_events(active: true, closed: false, limit: 100, tag_slug: "temperature")
 
       tag_slug ->
-        GammaClient.get_events(active: true, closed: false, limit: 50, tag: tag_slug)
+        GammaClient.get_events(active: true, closed: false, limit: 100, tag_slug: tag_slug)
     end
   end
 
