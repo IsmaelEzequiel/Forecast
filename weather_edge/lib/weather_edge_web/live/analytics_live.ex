@@ -25,7 +25,14 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
       |> Enum.filter(fn s -> s.count > 0 end)
 
     model_leaderboard = build_model_leaderboard(station_stats)
-    cumulative_pnl = build_cumulative(daily_pnl)
+
+    # P&L: try positions first, fall back to accuracy records
+    daily_pnl_data = if daily_pnl == [], do: Calibration.daily_pnl_from_accuracy(days: 30), else: daily_pnl
+    cumulative_pnl = build_cumulative(daily_pnl_data)
+
+    # Daily prediction accuracy
+    daily_accuracy = Calibration.daily_accuracy(days: 30)
+    cumulative_accuracy = build_cumulative_accuracy(daily_accuracy)
 
     # Closed trades
     closed_positions =
@@ -74,7 +81,8 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
        station_clusters: station_clusters,
        balance: cached_balance,
        wallet_address: wallet_address,
-       model_leaderboard: model_leaderboard
+       model_leaderboard: model_leaderboard,
+       cumulative_accuracy: cumulative_accuracy
      )}
   end
 
@@ -97,6 +105,12 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
       <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
         <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-4">Cumulative P&L (30 days)</h3>
         <.pnl_chart data={@cumulative_pnl} />
+      </div>
+
+      <!-- Prediction Accuracy Chart -->
+      <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+        <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-4">Prediction Accuracy (30 days)</h3>
+        <.accuracy_chart data={@cumulative_accuracy} />
       </div>
 
       <!-- Open Positions -->
@@ -398,6 +412,41 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
 
   attr :data, :list, required: true
 
+  defp accuracy_chart(assigns) do
+    data = assigns.data
+
+    if data == [] do
+      ~H"""
+      <div class="h-48 flex items-center justify-center text-zinc-400 text-sm">
+        No accuracy data yet. Chart will appear after markets resolve.
+      </div>
+      """
+    else
+      chart_data =
+        Jason.encode!(%{
+          labels: Enum.map(data, &Calendar.strftime(&1.date, "%b %d")),
+          correct: Enum.map(data, & &1.cumulative_correct),
+          wrong: Enum.map(data, & &1.cumulative_wrong)
+        })
+
+      assigns = assign(assigns, :chart_data, chart_data)
+
+      ~H"""
+      <div class="w-full h-48">
+        <canvas
+          id="accuracy-chart"
+          phx-hook="ChartHook"
+          data-chart-type="accuracy"
+          data-chart-data={@chart_data}
+          class="w-full h-full"
+        />
+      </div>
+      """
+    end
+  end
+
+  attr :data, :list, required: true
+
   defp pnl_chart(assigns) do
     data = assigns.data
 
@@ -439,6 +488,24 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
       {cumulative, [%{date: day.date, pnl: day.pnl, cumulative: cumulative, count: day.count} | acc]}
     end)
     |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp build_cumulative_accuracy(daily_accuracy) do
+    daily_accuracy
+    |> Enum.reduce({0, 0, []}, fn day, {running_correct, running_wrong, acc} ->
+      cum_correct = running_correct + day.correct
+      cum_wrong = running_wrong + day.wrong
+      entry = %{
+        date: day.date,
+        correct: day.correct,
+        wrong: day.wrong,
+        cumulative_correct: cum_correct,
+        cumulative_wrong: cum_wrong
+      }
+      {cum_correct, cum_wrong, [entry | acc]}
+    end)
+    |> elem(2)
     |> Enum.reverse()
   end
 

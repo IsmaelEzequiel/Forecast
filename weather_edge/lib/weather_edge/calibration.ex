@@ -41,6 +41,47 @@ defmodule WeatherEdge.Calibration do
   end
 
   @doc """
+  Returns daily prediction accuracy data for charting.
+  Groups forecast_accuracy by target_date, counts correct vs wrong.
+  """
+  def daily_accuracy(opts \\ []) do
+    days = Keyword.get(opts, :days, 30)
+    since = Date.add(Date.utc_today(), -days)
+
+    Accuracy
+    |> where([a], a.target_date >= ^since)
+    |> group_by([a], a.target_date)
+    |> select([a], %{
+      date: a.target_date,
+      correct: fragment("COUNT(CASE WHEN ? THEN 1 END)", a.resolution_correct),
+      wrong: fragment("COUNT(CASE WHEN NOT ? THEN 1 END)", a.resolution_correct),
+      total: count(a.id)
+    })
+    |> order_by([a], asc: a.target_date)
+    |> Repo.all()
+  end
+
+  @doc """
+  Returns daily P&L from accuracy records (auto_buy_pnl) for charting.
+  Falls back to positions if no accuracy data.
+  """
+  def daily_pnl_from_accuracy(opts \\ []) do
+    days = Keyword.get(opts, :days, 30)
+    since = Date.add(Date.utc_today(), -days)
+
+    Accuracy
+    |> where([a], a.target_date >= ^since and not is_nil(a.auto_buy_pnl))
+    |> group_by([a], a.target_date)
+    |> select([a], %{
+      date: a.target_date,
+      pnl: sum(a.auto_buy_pnl),
+      count: count(a.id)
+    })
+    |> order_by([a], asc: a.target_date)
+    |> Repo.all()
+  end
+
+  @doc """
   Returns overall stats summary.
   """
   def summary_stats do

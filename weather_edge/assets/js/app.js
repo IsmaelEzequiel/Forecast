@@ -79,6 +79,8 @@ Hooks.ChartHook = {
       return this.priceHistoryConfig(rawData)
     } else if (chartType === "pnl") {
       return this.pnlConfig(rawData)
+    } else if (chartType === "accuracy") {
+      return this.accuracyConfig(rawData)
     }
     return { type: "line", data: { labels: [], datasets: [] } }
   },
@@ -203,6 +205,59 @@ Hooks.ChartHook = {
                 const v = ctx.parsed.y
                 return "P&L: " + (v >= 0 ? "+$" : "-$") + Math.abs(v).toFixed(2)
               }
+            }
+          }
+        }
+      }
+    }
+  },
+  accuracyConfig(data) {
+    return {
+      type: "line",
+      data: {
+        labels: data.labels || [],
+        datasets: [
+          {
+            label: "Correct",
+            data: data.correct || [],
+            borderColor: "rgb(22, 163, 74)",
+            backgroundColor: "rgba(22, 163, 74, 0.1)",
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 5
+          },
+          {
+            label: "Wrong",
+            data: data.wrong || [],
+            borderColor: "rgb(220, 38, 38)",
+            backgroundColor: "rgba(220, 38, 38, 0.1)",
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 5
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1 },
+            grid: { color: "rgba(161, 161, 170, 0.2)" }
+          },
+          x: {
+            grid: { display: false },
+            ticks: { maxTicksLimit: 8 }
+          }
+        },
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: {
+            callbacks: {
+              label: ctx => ctx.dataset.label + ": " + ctx.parsed.y + " predictions"
             }
           }
         }
