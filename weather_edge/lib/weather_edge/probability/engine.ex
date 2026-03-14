@@ -45,7 +45,7 @@ defmodule WeatherEdge.Probability.Engine do
       empirical =
         snapshots
         |> extract_temps(unit)
-        |> build_weighted_empirical(snapshots, model_weights)
+        |> build_weighted_empirical(snapshots, model_weights, unit)
 
       # For today's markets, inject observed temperature from METAR as a high-confidence data point.
       # When the observed temp already exceeds model predictions, the models are wrong —
@@ -154,7 +154,7 @@ defmodule WeatherEdge.Probability.Engine do
     end)
   end
 
-  defp build_weighted_empirical(temps, _snapshots, model_weights) when model_weights == %{} do
+  defp build_weighted_empirical(temps, _snapshots, model_weights, _unit) when model_weights == %{} do
     # Equal weighting fallback
     total = length(temps)
 
@@ -163,16 +163,22 @@ defmodule WeatherEdge.Probability.Engine do
     |> Map.new(fn {temp, count} -> {temp, count / total} end)
   end
 
-  defp build_weighted_empirical(_temps, snapshots, model_weights) do
+  defp build_weighted_empirical(_temps, snapshots, model_weights, unit) do
     # Weighted: each model's temp gets its accuracy-based weight
+    # For models without accuracy data, use the median weight from known models
+    # to avoid giving unknown models outsized influence
+    known_weights = Map.values(model_weights)
+    fallback_weight = if known_weights != [], do: Enum.sort(known_weights) |> Enum.at(div(length(known_weights), 2)), else: 1.0
+
     total_weight =
       Enum.reduce(snapshots, 0.0, fn s, acc ->
-        acc + Map.get(model_weights, s.model, 1.0 / map_size(model_weights))
+        acc + Map.get(model_weights, s.model, fallback_weight)
       end)
 
     Enum.reduce(snapshots, %{}, fn snapshot, acc ->
-      temp = round(snapshot.max_temp_c)
-      weight = Map.get(model_weights, snapshot.model, 1.0 / map_size(model_weights))
+      temp_c = snapshot.max_temp_c
+      temp = if unit == "F", do: round(temp_c * 9 / 5 + 32), else: round(temp_c)
+      weight = Map.get(model_weights, snapshot.model, fallback_weight)
       normalized_weight = weight / total_weight
       Map.update(acc, temp, normalized_weight, &(&1 + normalized_weight))
     end)
