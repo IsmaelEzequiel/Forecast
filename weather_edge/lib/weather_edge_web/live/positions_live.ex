@@ -110,7 +110,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
               <% payout = tokens %>
               <% profit = payout - budget %>
 
-              <div class="flex items-center gap-2 mb-2">
+              <form phx-change="update_dutch_budget" class="flex items-center gap-2 mb-2">
                 <p class="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                   Buy plan — Budget:
                 </p>
@@ -118,16 +118,15 @@ defmodule WeatherEdgeWeb.PositionsLive do
                   <span class="text-xs text-zinc-500">$</span>
                   <input
                     type="number"
-                    phx-change="update_dutch_budget"
-                    phx-debounce="300"
                     name="budget"
                     value={@dutch_budget}
                     min="1"
                     step="5"
+                    phx-debounce="300"
                     class="w-20 text-xs font-bold rounded border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-zinc-800 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
-              </div>
+              </form>
               <table class="w-full text-xs">
                 <thead>
                   <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
