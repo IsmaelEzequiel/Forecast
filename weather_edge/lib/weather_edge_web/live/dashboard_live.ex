@@ -392,7 +392,7 @@ defmodule WeatherEdgeWeb.DashboardLive do
       <.portfolio_summary positions={@all_positions} sidecar_positions={@sidecar_positions} balance={@balance} />
 
       <!-- Station Cards -->
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <.station_card
           :for={station <- @stations}
           station={station}

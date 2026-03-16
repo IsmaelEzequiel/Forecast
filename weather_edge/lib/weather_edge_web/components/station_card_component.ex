@@ -11,8 +11,8 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
   def station_card(assigns) do
     ~H"""
     <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 shadow-sm">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+        <div class="flex flex-wrap items-center gap-2">
           <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
             <%= @station.code %> — <%= @station.city %>
           </h2>
@@ -23,7 +23,7 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
           <.station_health station={@station} />
         </div>
 
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
           <label class="flex items-center gap-1.5 text-xs">
             <button
               phx-click="toggle_monitoring"
@@ -61,8 +61,8 @@ defmodule WeatherEdgeWeb.Components.StationCardComponent do
         </div>
       </div>
 
-      <div class="flex items-center gap-4 mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-        <form phx-change="update_station_settings" phx-value-code={@station.code} class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-2 sm:gap-4 mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+        <form phx-change="update_station_settings" phx-value-code={@station.code} class="flex flex-wrap items-center gap-2 sm:gap-3">
           <input type="hidden" name="code" value={@station.code} />
           <label class="flex items-center gap-1">
             Max Buy:

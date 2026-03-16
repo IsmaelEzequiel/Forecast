@@ -199,7 +199,7 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
           No signals yet. Signals will appear when the mispricing scanner detects opportunities.
         </div>
         <div :if={@recent_signals != []} class="overflow-x-auto">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm min-w-[700px]">
             <thead>
               <tr class="border-b border-zinc-200 dark:border-zinc-700 text-xs text-zinc-500 dark:text-zinc-400">
                 <th class="text-left py-2 pr-3">Time</th>
@@ -289,7 +289,7 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
       <div :if={@station_stats != []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
         <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-4">Model Accuracy by Station</h3>
         <div class="overflow-x-auto">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm min-w-[500px]">
             <thead>
               <tr class="border-b border-zinc-200 dark:border-zinc-700 text-xs text-zinc-500 dark:text-zinc-400">
                 <th class="text-left py-2 pr-4">Station</th>
@@ -357,7 +357,7 @@ defmodule WeatherEdgeWeb.AnalyticsLive do
       <div :if={@recent_trades != []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
         <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-4">Recent Closed Trades</h3>
         <div class="overflow-x-auto">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm min-w-[550px]">
             <thead>
               <tr class="border-b border-zinc-200 dark:border-zinc-700 text-xs text-zinc-500 dark:text-zinc-400">
                 <th class="text-left py-2 pr-3">Station</th>

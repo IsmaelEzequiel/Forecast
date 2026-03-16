@@ -70,8 +70,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
     <div class="space-y-4 pb-24">
       <.dashboard_header balance={@balance} wallet_address={@wallet_address} />
 
-      <div class="sticky top-0 z-30 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 space-y-3">
-        <div class="flex items-center justify-between">
+      <div class="sticky top-0 z-30 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3 sm:p-4 space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <.filter_bar filters={@filters} station_codes={@station_codes} total_count={@total_count} signals_count={length(@signals)} />
           <div class="flex items-center gap-2">
             <button
@@ -195,7 +195,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
     ~H"""
     <div>
       <h4 class="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">By Alert Level</h4>
-      <table class="w-full text-xs">
+      <div class="overflow-x-auto">
+      <table class="w-full text-xs min-w-[400px]">
         <thead>
           <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
             <th class="px-3 py-1.5">Level</th>
@@ -217,6 +218,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
     """
   end
@@ -228,7 +230,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
     ~H"""
     <div>
       <h4 class="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">By Station</h4>
-      <table class="w-full text-xs">
+      <div class="overflow-x-auto">
+      <table class="w-full text-xs min-w-[400px]">
         <thead>
           <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
             <th class="px-3 py-1.5">Station</th>
@@ -246,6 +249,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
     """
   end
@@ -255,7 +259,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
     <div>
       <h4 class="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Signal History</h4>
       <div class="overflow-x-auto">
-        <table class="w-full text-xs">
+        <table class="w-full text-xs min-w-[500px]">
           <thead>
             <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
               <th class="px-3 py-1.5">Date</th>
@@ -304,17 +308,17 @@ defmodule WeatherEdgeWeb.SignalsLive do
       |> assign(:estimated_cost, estimated_cost)
 
     ~H"""
-    <div class="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-6 py-3 shadow-lg">
-      <div class="flex items-center justify-between max-w-7xl mx-auto">
-        <div class="flex items-center gap-4 text-sm">
+    <div class="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 sm:px-6 py-2 sm:py-3 shadow-lg">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 max-w-7xl mx-auto">
+        <div class="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm">
           <span class="text-zinc-500 dark:text-zinc-400">
-            Balance: <span class="font-medium text-zinc-900 dark:text-zinc-100">$<%= format_price(@balance || 0) %></span>
+            Bal: <span class="font-medium text-zinc-900 dark:text-zinc-100">$<%= format_price(@balance || 0) %></span>
           </span>
           <span class="text-zinc-500 dark:text-zinc-400">
-            Selected: <span class="font-medium text-zinc-900 dark:text-zinc-100"><%= @selected_count %></span>
+            Sel: <span class="font-medium text-zinc-900 dark:text-zinc-100"><%= @selected_count %></span>
           </span>
           <span :if={@selected_count > 0} class="text-zinc-500 dark:text-zinc-400">
-            Est. Cost: <span class="font-medium text-zinc-900 dark:text-zinc-100">$<%= format_price(@estimated_cost) %></span>
+            Cost: <span class="font-medium text-zinc-900 dark:text-zinc-100">$<%= format_price(@estimated_cost) %></span>
           </span>
         </div>
         <div class="flex items-center gap-3">
@@ -343,7 +347,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
   defp signals_table(assigns) do
     ~H"""
     <div class="overflow-x-auto">
-      <table class="w-full text-xs">
+      <table class="w-full text-xs min-w-[900px]">
         <thead>
           <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
             <th class="px-3 py-2 w-8"></th>
@@ -494,8 +498,8 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
     ~H"""
     <details class="group" open>
-      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-        <div class="flex items-center gap-3">
+      <summary class="flex items-center justify-between px-3 sm:px-4 py-3 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+        <div class="flex flex-wrap items-center gap-1.5 sm:gap-3">
           <span class="font-bold text-sm text-zinc-900 dark:text-zinc-100"><%= @group.station_code %></span>
           <span class="text-xs text-zinc-500 dark:text-zinc-400"><%= @group.station.city %></span>
           <span class="text-xs text-zinc-500 dark:text-zinc-400"><%= @group.cluster.target_date %></span>
@@ -540,7 +544,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
           <.grouped_signal_row :for={row <- @group.other_signals} row={row} highlight={false} />
         </div>
 
-        <div class="flex gap-2 pt-1">
+        <div class="flex flex-wrap gap-2 pt-1">
           <button
             phx-click="buy_best"
             phx-value-signal-id={@group.best_play.signal.id}
@@ -611,7 +615,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
       <div :if={@heatmap.stations == []} class="text-center text-sm text-zinc-500 dark:text-zinc-400 py-6">
         No signals available for heatmap
       </div>
-      <table :if={@heatmap.stations != []} class="w-full text-xs">
+      <table :if={@heatmap.stations != []} class="w-full text-xs min-w-[600px]">
         <thead>
           <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
             <th class="px-3 py-2 font-medium">Station</th>
@@ -932,7 +936,7 @@ defmodule WeatherEdgeWeb.SignalsLive do
 
   defp detail_panel(assigns) do
     ~H"""
-    <div class="fixed top-0 right-0 w-2/5 h-full z-50 bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-700 shadow-xl overflow-y-auto transition-transform">
+    <div class="fixed top-0 right-0 w-full sm:w-3/5 lg:w-2/5 h-full z-50 bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-700 shadow-xl overflow-y-auto transition-transform">
       <div class="sticky top-0 z-10 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-4 py-3 flex items-center justify-between">
         <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Signal Detail</h2>
         <button

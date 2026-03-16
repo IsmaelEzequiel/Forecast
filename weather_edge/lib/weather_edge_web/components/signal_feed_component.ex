@@ -36,14 +36,14 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
 
     ~H"""
     <div class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
-      <div class="flex items-center justify-between mb-3">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
         <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
           Signal Feed
           <span class="text-xs font-normal text-zinc-400 ml-1">
             (<%= length(@filtered_signals) %><%= if @has_more, do: " of #{@total_filtered}", else: "" %>)
           </span>
         </h3>
-        <div class="flex items-center gap-1">
+        <div class="flex flex-wrap items-center gap-1">
           <button
             :for={{value, label, _color} <- filter_options()}
             phx-click="filter_signals"
@@ -74,8 +74,8 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
             signal_border_class(signal)
           ]}
         >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-1">
+            <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <span class={["inline-block w-2 h-2 rounded-full", signal_dot_class(signal)]}></span>
               <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">
                 {format_timestamp(signal)}
@@ -84,7 +84,7 @@ defmodule WeatherEdgeWeb.Components.SignalFeedComponent do
               <span class="font-bold text-zinc-900 dark:text-zinc-100">{extract_temp(signal)}</span>
               <span class="text-xs text-zinc-400">{format_target_date(signal)}</span>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <span class={["text-xs font-bold px-2 py-0.5 rounded", side_class(signal)]}>
                 {side_text(signal)}
               </span>
