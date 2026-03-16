@@ -39,7 +39,8 @@ defmodule WeatherEdgeWeb.PositionsLive do
        sell_progress: nil,
        confirm_sell: nil,
        buying_dutch: nil,
-       history_expanded: false
+       history_expanded: false,
+       dutch_budget: 50.0
      )}
   end
 
@@ -104,14 +105,29 @@ defmodule WeatherEdgeWeb.PositionsLive do
 
             <%!-- Recommended picks table with allocation --%>
             <div :if={opp.picks != []} class="overflow-x-auto">
-              <% budget = 50.0 %>
+              <% budget = @dutch_budget %>
               <% tokens = if opp.picks_sum > 0, do: budget / opp.picks_sum, else: 0 %>
               <% payout = tokens %>
               <% profit = payout - budget %>
 
-              <p class="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">
-                Buy plan for $<%= format_price(budget) %> budget
-              </p>
+              <div class="flex items-center gap-2 mb-2">
+                <p class="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                  Buy plan — Budget:
+                </p>
+                <div class="flex items-center gap-1">
+                  <span class="text-xs text-zinc-500">$</span>
+                  <input
+                    type="number"
+                    phx-change="update_dutch_budget"
+                    phx-debounce="300"
+                    name="budget"
+                    value={@dutch_budget}
+                    min="1"
+                    step="5"
+                    class="w-20 text-xs font-bold rounded border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-zinc-800 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
               <table class="w-full text-xs">
                 <thead>
                   <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
@@ -745,6 +761,15 @@ defmodule WeatherEdgeWeb.PositionsLive do
     end)
 
     {:noreply, put_flash(socket, :info, "Dutch buy job queued for #{station_code}")}
+  end
+
+  def handle_event("update_dutch_budget", %{"budget" => budget_str}, socket) do
+    case Float.parse(to_string(budget_str)) do
+      {amount, _} when amount > 0 ->
+        {:noreply, assign(socket, :dutch_budget, amount)}
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("refresh_opportunities", _params, socket) do
