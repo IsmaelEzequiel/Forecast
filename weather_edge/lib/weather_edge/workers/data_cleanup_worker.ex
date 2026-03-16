@@ -17,7 +17,7 @@ defmodule WeatherEdge.Workers.DataCleanupWorker do
 
   alias WeatherEdge.Repo
 
-  @retention_days 7
+  @retention_days 30
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
