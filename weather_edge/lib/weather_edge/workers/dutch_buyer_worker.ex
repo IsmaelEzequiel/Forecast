@@ -45,6 +45,16 @@ defmodule WeatherEdge.Workers.DutchBuyerWorker do
   defp execute_dutch(station, cluster) do
     temp_unit = station.temp_unit || "C"
 
+    # SAFETY: Check total sum of ALL YES prices first
+    all_prices_sum =
+      (cluster.outcomes || [])
+      |> Enum.reduce(0.0, fn o, acc -> acc + (o["yes_price"] || o["price"] || 0) end)
+
+    if all_prices_sum >= 0.95 do
+      Logger.warning("DutchBuyer: #{station.code} BLOCKED — total sum YES $#{Float.round(all_prices_sum, 2)} >= $0.95. No dutching opportunity.")
+      return_early()
+    end
+
     case Engine.compute_distribution(station.code, cluster.target_date, temp_unit: temp_unit) do
       {:ok, dist} ->
         live_prices = build_price_map(cluster.outcomes)

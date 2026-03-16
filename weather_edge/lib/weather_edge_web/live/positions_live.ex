@@ -55,9 +55,22 @@ defmodule WeatherEdgeWeb.PositionsLive do
 
       <%!-- Dutch Opportunities --%>
       <div :if={@opportunities != []} class="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 p-4 space-y-3">
-        <h3 class="text-xs font-semibold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">
-          Dutch Opportunities (<%= length(@opportunities) %>)
-        </h3>
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-semibold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">
+            Dutch Opportunities (<%= length(@opportunities) %>)
+          </h3>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-red-600 dark:text-red-400 font-medium">
+              Prices may be stale — always verify on Polymarket before buying
+            </span>
+            <button
+              phx-click="refresh_opportunities"
+              class="px-2 py-0.5 text-[10px] font-medium rounded border border-zinc-300 dark:border-zinc-600 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
         <div class="space-y-3">
           <div :for={opp <- @opportunities} class="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">
             <%!-- Header row --%>
@@ -96,16 +109,21 @@ defmodule WeatherEdgeWeb.PositionsLive do
                 phx-click="execute_dutch"
                 phx-value-cluster-id={opp.cluster_id}
                 phx-value-station-code={opp.station_code}
-                disabled={@buying_dutch == opp.cluster_id}
+                disabled={@buying_dutch == opp.cluster_id or opp.picks_sum >= 1.0}
                 class={[
                   "px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap",
-                  if(@buying_dutch == opp.cluster_id,
-                    do: "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed",
-                    else: "bg-indigo-600 text-white hover:bg-indigo-700"
-                  )
+                  cond do
+                    opp.picks_sum >= 1.0 -> "bg-red-200 dark:bg-red-900 text-red-400 cursor-not-allowed"
+                    @buying_dutch == opp.cluster_id -> "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed"
+                    true -> "bg-indigo-600 text-white hover:bg-indigo-700"
+                  end
                 ]}
               >
-                <%= if @buying_dutch == opp.cluster_id, do: "Buying...", else: "AUTO BUY" %>
+                <%= cond do %>
+                  <% opp.picks_sum >= 1.0 -> %>NO PROFIT
+                  <% @buying_dutch == opp.cluster_id -> %>Buying...
+                  <% true -> %>AUTO BUY
+                <% end %>
               </button>
             </div>
 
