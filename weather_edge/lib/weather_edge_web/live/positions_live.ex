@@ -78,12 +78,18 @@ defmodule WeatherEdgeWeb.PositionsLive do
                   </a>
                 </div>
                 <div class="flex items-center gap-3 mt-1 text-xs flex-wrap">
-                  <span class="text-zinc-500">Sum YES: <span class="font-medium text-amber-600 dark:text-amber-400">$<%= format_price(opp.sum_yes) %></span></span>
-                  <span class="text-zinc-500">Deviation: <span class="font-bold text-green-600 dark:text-green-400"><%= format_pct_raw((1.0 - opp.sum_yes) * 100) %></span></span>
-                  <span :if={opp.picks_sum > 0} class="text-zinc-500">Picks Sum: <span class="font-bold text-indigo-600 dark:text-indigo-400">$<%= format_price(opp.picks_sum) %></span></span>
-                  <span :if={opp.est_profit_pct} class="text-green-600 dark:text-green-400 font-bold">
-                    ~<%= format_pct_raw(opp.est_profit_pct * 100) %> guaranteed profit
-                  </span>
+                  <span class="text-zinc-500">Sum YES (all): <span class={["font-medium", if(opp.sum_yes < 1.0, do: "text-amber-600 dark:text-amber-400", else: "text-red-600 dark:text-red-400")]}> $<%= format_price(opp.sum_yes) %></span></span>
+                  <span :if={opp.picks_sum > 0} class="text-zinc-500">Picks Sum: <span class={["font-bold", if(opp.picks_sum < 1.0, do: "text-green-600 dark:text-green-400", else: "text-red-600 dark:text-red-400")]}>$<%= format_price(opp.picks_sum) %></span></span>
+                  <%= if opp.picks_sum > 0 and opp.picks_sum < 1.0 do %>
+                    <span class="text-green-600 dark:text-green-400 font-bold">
+                      ~<%= format_pct_raw((1.0 / opp.picks_sum - 1.0) * 100) %> guaranteed profit
+                    </span>
+                  <% end %>
+                  <%= if opp.picks_sum >= 1.0 do %>
+                    <span class="text-red-600 dark:text-red-400 font-bold">
+                      NOT PROFITABLE — picks sum >= $1.00
+                    </span>
+                  <% end %>
                 </div>
               </div>
               <button
@@ -169,22 +175,32 @@ defmodule WeatherEdgeWeb.PositionsLive do
               </table>
 
               <%!-- Payout summary --%>
-              <div class="mt-2 p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                <div class="flex flex-wrap items-center gap-4 text-xs">
-                  <span class="text-green-700 dark:text-green-400">
-                    Invest: <span class="font-bold">$<%= format_price(budget) %></span>
-                  </span>
-                  <span class="text-green-700 dark:text-green-400">
-                    Payout if any wins: <span class="font-bold">$<%= format_price(payout) %></span>
-                  </span>
-                  <span class="text-green-700 dark:text-green-400">
-                    Guaranteed profit: <span class="font-bold">$<%= format_price(profit) %> (<%= format_pct_raw(if(budget > 0, do: profit / budget * 100, else: 0)) %>)</span>
-                  </span>
-                  <span class="text-zinc-500 dark:text-zinc-400">
-                    Coverage: <%= format_pct_raw(Enum.reduce(opp.picks, 0.0, fn p, acc -> acc + p.model_prob end) * 100) %>
-                  </span>
+              <%= if opp.picks_sum < 1.0 do %>
+                <div class="mt-2 p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                  <div class="flex flex-wrap items-center gap-4 text-xs">
+                    <span class="text-green-700 dark:text-green-400">
+                      Invest: <span class="font-bold">$<%= format_price(budget) %></span>
+                    </span>
+                    <span class="text-green-700 dark:text-green-400">
+                      Payout if any wins: <span class="font-bold">$<%= format_price(payout) %></span>
+                    </span>
+                    <span class="text-green-700 dark:text-green-400">
+                      Guaranteed profit: <span class="font-bold">$<%= format_price(profit) %> (<%= format_pct_raw(if(budget > 0, do: profit / budget * 100, else: 0)) %>)</span>
+                    </span>
+                    <span class="text-zinc-500 dark:text-zinc-400">
+                      Coverage: <%= format_pct_raw(Enum.reduce(opp.picks, 0.0, fn p, acc -> acc + p.model_prob end) * 100) %>
+                    </span>
+                  </div>
                 </div>
-              </div>
+              <% else %>
+                <div class="mt-2 p-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                  <div class="text-xs text-red-700 dark:text-red-400 font-medium">
+                    NOT PROFITABLE — Picks sum $<%= format_price(opp.picks_sum) %> >= $1.00. You would LOSE $<%= format_price(abs(profit)) %> on a $<%= format_price(budget) %> bet.
+                    Dutching only works in the first 30-60 min after market opens when prices are low.
+                    Prices shown are from last snapshot — run Price Snapshot to refresh.
+                  </div>
+                </div>
+              <% end %>
             </div>
 
             <div :if={opp.picks == []} class="text-xs text-zinc-400 italic">
@@ -1042,7 +1058,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
         picks: picks
       }
     end)
-    |> Enum.filter(fn opp -> opp.sum_yes > 0 and opp.sum_yes < 0.90 end)
+    |> Enum.filter(fn opp -> opp.sum_yes > 0 end)
     |> Enum.sort_by(& &1.deviation, :desc)
   rescue
     _ -> []
