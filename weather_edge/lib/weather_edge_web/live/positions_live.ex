@@ -992,38 +992,97 @@ defmodule WeatherEdgeWeb.PositionsLive do
   end
 
   defp compute_recommended_picks(cluster, outcomes) do
-    # Try to get model distribution
+    require Logger
+
     dist =
       case WeatherEdge.Stations.get_by_code(cluster.station_code) do
         {:ok, station} ->
           unit = station.temp_unit || "C"
           case WeatherEdge.Probability.Engine.compute_distribution(cluster.station_code, cluster.target_date, temp_unit: unit) do
             {:ok, d} -> d
-            _ -> nil
+            {:error, reason} ->
+              Logger.warning("DutchPicks: Distribution failed for #{cluster.station_code}/#{cluster.target_date}: #{inspect(reason)}")
+              nil
           end
         _ -> nil
       end
 
-    # Build candidates with model probability + market price
-    candidates =
+    if is_nil(dist) do
+      # No distribution — show outcomes sorted by price (cheapest first) so user can decide
       outcomes
       |> Enum.map(fn o ->
         label = o["outcome_label"] || o["label"] || ""
         price = o["yes_price"] || o["price"] || 0
-        model_prob = if dist, do: Map.get(dist.probabilities, label, 0.0), else: 0.0
-
-        %{
-          label: label,
-          price: price,
-          model_prob: model_prob,
-          edge: model_prob - price
-        }
+        %{label: label, price: price, model_prob: 0.0, edge: 0.0}
       end)
-      |> Enum.filter(fn c -> c.price > 0 and c.price < 0.50 and c.model_prob >= 0.02 end)
-      |> Enum.sort_by(& &1.model_prob, :desc)
+      |> Enum.filter(fn c -> c.price > 0 end)
+      |> Enum.sort_by(& &1.price)
       |> Enum.take(4)
+    else
+      # Log label comparison for debugging
+      outcome_labels = Enum.map(outcomes, fn o -> o["outcome_label"] || o["label"] end) |> Enum.take(5)
+      dist_labels = Map.keys(dist.probabilities) |> Enum.take(5)
+      Logger.debug("DutchPicks: #{cluster.station_code} outcome_labels=#{inspect(outcome_labels)} dist_labels=#{inspect(dist_labels)}")
 
-    candidates
+      # Try exact match first, then fuzzy match by extracting temp number
+      candidates =
+        outcomes
+        |> Enum.map(fn o ->
+          label = o["outcome_label"] || o["label"] || ""
+          price = o["yes_price"] || o["price"] || 0
+
+          # Try exact match, then fuzzy match
+          model_prob =
+            case Map.get(dist.probabilities, label) do
+              nil -> fuzzy_prob_lookup(dist.probabilities, label)
+              prob -> prob
+            end
+
+          %{
+            label: label,
+            price: price,
+            model_prob: model_prob,
+            edge: model_prob - price
+          }
+        end)
+        |> Enum.filter(fn c -> c.price > 0 and c.model_prob >= 0.02 end)
+        |> Enum.sort_by(& &1.model_prob, :desc)
+        |> Enum.take(4)
+
+      if candidates == [] do
+        Logger.warning("DutchPicks: No matches for #{cluster.station_code}. Outcome labels: #{inspect(outcome_labels)} | Dist labels: #{inspect(dist_labels)}")
+      end
+
+      candidates
+    end
+  end
+
+  # Fuzzy match: extract temp number from outcome label and try matching distribution keys
+  # e.g. "14 degrees Celsius or higher" -> try "14C", "14C or higher"
+  # e.g. "52°F or below" -> try "52F", "52F or below"
+  defp fuzzy_prob_lookup(probs, label) do
+    # Extract the number from the label
+    case Regex.run(~r/(-?\d+)/, label) do
+      [_, num_str] ->
+        num = num_str
+
+        # Try common patterns
+        matches = [
+          "#{num}C", "#{num}F",
+          "#{num}C or higher", "#{num}C or below",
+          "#{num}F or higher", "#{num}F or below"
+        ]
+
+        Enum.find_value(matches, 0.0, fn key ->
+          case Map.get(probs, key) do
+            nil -> nil
+            prob -> prob
+          end
+        end)
+
+      _ ->
+        0.0
+    end
   end
 
   defp fmt_sidecar(nil), do: "-"
