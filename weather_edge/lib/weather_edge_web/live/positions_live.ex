@@ -85,7 +85,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
   defp summary_bar(assigns) do
     total_invested =
       Enum.reduce(assigns.open_positions, 0.0, fn g, acc ->
-        acc + (Map.get(g, :total_cost, 0.0) || 0.0)
+        acc + (Map.get(g, :total_invested, 0.0) || 0.0)
       end)
 
     current_value =
@@ -130,13 +130,13 @@ defmodule WeatherEdgeWeb.PositionsLive do
 
   defp position_card(assigns) do
     group = assigns.group
-    orders = Map.get(group, :orders, [])
+    orders = Map.get(group, :dutch_orders, [])
     num_outcomes = length(orders)
 
-    total_cost = Map.get(group, :total_cost, 0.0) || 0.0
+    total_invested = Map.get(group, :total_invested, 0.0) || 0.0
     current_value = Map.get(group, :current_value, 0.0) || 0.0
-    unrealized_pnl = current_value - total_cost
-    pnl_pct = if total_cost > 0, do: unrealized_pnl / total_cost * 100, else: 0.0
+    unrealized_pnl = current_value - total_invested
+    pnl_pct = if total_invested > 0, do: unrealized_pnl / total_invested * 100, else: 0.0
     coverage = Map.get(group, :coverage, 0.0) || 0.0
     target_date = Map.get(group, :target_date)
     days_left = if target_date, do: days_until(target_date), else: nil
@@ -145,22 +145,22 @@ defmodule WeatherEdgeWeb.PositionsLive do
     recommendation = Map.get(group, :sell_recommendation)
 
     # Sell vs hold data
-    sell_value = Map.get(group, :sell_value, current_value)
-    sell_profit = (sell_value || 0.0) - total_cost
-    sell_pct = if total_cost > 0, do: sell_profit / total_cost * 100, else: 0.0
+    sell_value = current_value
+    sell_profit = sell_value - total_invested
+    sell_pct = if total_invested > 0, do: sell_profit / total_invested * 100, else: 0.0
     hold_payout = Map.get(group, :guaranteed_payout, 0.0) || 0.0
-    hold_profit = hold_payout - total_cost
-    hold_pct = if total_cost > 0, do: hold_profit / total_cost * 100, else: 0.0
-    loss_chance = Map.get(group, :loss_chance_pct, 0.0) || 0.0
+    hold_profit = hold_payout - total_invested
+    hold_pct = if total_invested > 0, do: hold_profit / total_invested * 100, else: 0.0
+    loss_chance = (1.0 - coverage) * 100
 
     # Progress bar width: capped at 100%
-    progress_pct = if total_cost > 0, do: min(current_value / total_cost * 100, 150), else: 0
+    progress_pct = if total_invested > 0, do: min(current_value / total_invested * 100, 150), else: 0
 
     assigns =
       assigns
       |> assign(:orders, orders)
       |> assign(:num_outcomes, num_outcomes)
-      |> assign(:total_cost, total_cost)
+      |> assign(:total_invested, total_invested)
       |> assign(:current_value, current_value)
       |> assign(:unrealized_pnl, unrealized_pnl)
       |> assign(:pnl_pct, pnl_pct)
@@ -216,7 +216,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
       <%!-- Progress Bar --%>
       <div class="space-y-1">
         <div class="flex justify-between text-xs text-zinc-400">
-          <span>Invested: $<%= format_price(@total_cost) %></span>
+          <span>Invested: $<%= format_price(@total_invested) %></span>
           <span>Current: $<%= format_price(@current_value) %></span>
         </div>
         <div class="w-full h-2 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
@@ -350,8 +350,8 @@ defmodule WeatherEdgeWeb.PositionsLive do
 
   defp sell_confirmation_modal(assigns) do
     group = assigns.group
-    total_cost = Map.get(group, :total_cost, 0.0) || 0.0
-    sell_value = Map.get(group, :sell_value, Map.get(group, :current_value, 0.0)) || 0.0
+    total_cost = Map.get(group, :total_invested, 0.0) || 0.0
+    sell_value = Map.get(group, :current_value, 0.0) || 0.0
     profit = sell_value - total_cost
     station_code = Map.get(group, :station_code, "???")
 
@@ -449,18 +449,18 @@ defmodule WeatherEdgeWeb.PositionsLive do
                   <%= Map.get(h, :station_code, "-") %>
                 </td>
                 <td class="px-3 py-2 text-right text-zinc-600 dark:text-zinc-400">
-                  $<%= format_price(Map.get(h, :total_cost, 0)) %>
+                  $<%= format_price(Map.get(h, :total_invested, 0)) %>
                 </td>
                 <td class="px-3 py-2">
                   <span class={["px-1.5 py-0.5 rounded text-xs font-medium", exit_result_class(Map.get(h, :status))]}>
                     <%= exit_result_label(Map.get(h, :status)) %>
                   </span>
                 </td>
-                <td class={"px-3 py-2 text-right font-semibold #{pnl_color(Map.get(h, :realized_pnl, 0))}"}>
-                  <%= format_pnl(Map.get(h, :realized_pnl, 0)) %>
+                <td class={"px-3 py-2 text-right font-semibold #{pnl_color(Map.get(h, :actual_pnl, 0))}"}>
+                  <%= format_pnl(Map.get(h, :actual_pnl, 0)) %>
                 </td>
                 <td class="px-3 py-2 text-zinc-500 dark:text-zinc-400">
-                  <%= exit_type_label(Map.get(h, :exit_type)) %>
+                  <%= exit_type_label(Map.get(h, :status)) %>
                 </td>
               </tr>
             </tbody>
@@ -468,11 +468,11 @@ defmodule WeatherEdgeWeb.PositionsLive do
               <tr class="border-t border-zinc-300 dark:border-zinc-600 font-semibold text-zinc-900 dark:text-zinc-100">
                 <td class="px-3 py-2" colspan="2">Total</td>
                 <td class="px-3 py-2 text-right">
-                  $<%= format_price(Enum.reduce(@history, 0.0, fn h, acc -> acc + (Map.get(h, :total_cost, 0) || 0) end)) %>
+                  $<%= format_price(Enum.reduce(@history, 0.0, fn h, acc -> acc + (Map.get(h, :total_invested, 0) || 0) end)) %>
                 </td>
                 <td class="px-3 py-2"></td>
-                <td class={"px-3 py-2 text-right font-bold #{pnl_color(Enum.reduce(@history, 0.0, fn h, acc -> acc + (Map.get(h, :realized_pnl, 0) || 0) end))}"}>
-                  <%= format_pnl(Enum.reduce(@history, 0.0, fn h, acc -> acc + (Map.get(h, :realized_pnl, 0) || 0) end)) %>
+                <td class={"px-3 py-2 text-right font-bold #{pnl_color(Enum.reduce(@history, 0.0, fn h, acc -> acc + (Map.get(h, :actual_pnl, 0) || 0) end))}"}>
+                  <%= format_pnl(Enum.reduce(@history, 0.0, fn h, acc -> acc + (Map.get(h, :actual_pnl, 0) || 0) end)) %>
                 </td>
                 <td class="px-3 py-2"></td>
               </tr>
@@ -575,7 +575,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
             end)
 
           g
-          |> Map.put(:orders, updated_orders)
+          |> Map.put(:dutch_orders, updated_orders)
           |> Map.put(:current_value, current_value)
           |> Map.put(:sell_recommendation, recommendation)
           |> Map.put(:sell_value, current_value)
@@ -604,7 +604,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
         entry =
           resolved
           |> Map.put(:status, Map.get(result, :status, "resolved"))
-          |> Map.put(:realized_pnl, Map.get(result, :realized_pnl, 0))
+          |> Map.put(:actual_pnl, Map.get(result, :actual_pnl, 0))
           |> Map.put(:exit_type, "resolved")
 
         [entry | socket.assigns.history]
@@ -626,7 +626,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
       if sold do
         pnl =
           case result do
-            {:ok, r} -> Map.get(r, :realized_pnl, 0)
+            {:ok, r} -> Map.get(r, :actual_pnl, 0)
             _ -> 0
           end
 
@@ -762,22 +762,26 @@ defmodule WeatherEdgeWeb.PositionsLive do
 
   defp recommendation_text(_), do: "No recommendation available"
 
+  defp exit_result_class("won"), do: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
   defp exit_result_class("resolved_win"), do: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+  defp exit_result_class("lost"), do: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
   defp exit_result_class("resolved_loss"), do: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
   defp exit_result_class("sold"), do: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
   defp exit_result_class(_), do: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
 
+  defp exit_result_label("won"), do: "WIN"
   defp exit_result_label("resolved_win"), do: "WIN"
+  defp exit_result_label("lost"), do: "LOSS"
   defp exit_result_label("resolved_loss"), do: "LOSS"
   defp exit_result_label("sold"), do: "SOLD"
   defp exit_result_label(nil), do: "-"
   defp exit_result_label(s) when is_binary(s), do: String.upcase(s)
   defp exit_result_label(_), do: "-"
 
-  defp exit_type_label("resolved"), do: "Resolution"
+  defp exit_type_label("won"), do: "Resolution (Win)"
+  defp exit_type_label("lost"), do: "Resolution (Loss)"
   defp exit_type_label("sold"), do: "Manual Sell"
-  defp exit_type_label("auto_sell"), do: "Auto Sell"
   defp exit_type_label(nil), do: "-"
-  defp exit_type_label(s) when is_binary(s), do: s
+  defp exit_type_label(s) when is_binary(s), do: String.capitalize(s)
   defp exit_type_label(_), do: "-"
 end
