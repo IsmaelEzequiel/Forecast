@@ -383,6 +383,9 @@ defmodule WeatherEdgeWeb.DashboardLive do
           <.worker_button label="Snapshot Prices" desc="Save current Polymarket prices for P&L tracking" worker="price_snapshot" last_run={job_ago(:price_snapshot)} running={job_running?(:price_snapshot)} tick={@worker_tick} />
           <.worker_button label="Monitor Positions" desc="Check open positions and update unrealized P&L" worker="position_monitor" last_run={job_ago(:position_monitor)} running={job_running?(:position_monitor)} tick={@worker_tick} />
           <.worker_button label="Resolve Events" desc="Close past events, fetch actual temps, finalize P&L" worker="resolution" last_run={job_ago(:resolution)} running={job_running?(:resolution)} tick={@worker_tick} />
+          <.worker_button label="Dutch Buyer" desc="Execute dutching strategy on new events (multi-outcome YES)" worker="dutch_buyer" last_run={job_ago(:dutch_buyer)} running={job_running?(:dutch_buyer)} tick={@worker_tick} />
+          <.worker_button label="Dutch Monitor" desc="Update prices and sell/hold recommendations for open dutch positions" worker="dutch_monitor" last_run={job_ago(:dutch_monitor)} running={job_running?(:dutch_monitor)} tick={@worker_tick} />
+          <.worker_button label="Dutch Resolver" desc="Resolve dutch groups when markets close" worker="dutch_resolver" last_run={job_ago(:dutch_resolver)} running={job_running?(:dutch_resolver)} tick={@worker_tick} />
         </div>
       </div>
 
@@ -491,6 +494,9 @@ defmodule WeatherEdgeWeb.DashboardLive do
   defp worker_module("price_snapshot"), do: WeatherEdge.Workers.PriceSnapshotWorker
   defp worker_module("position_monitor"), do: WeatherEdge.Workers.PositionMonitorWorker
   defp worker_module("resolution"), do: WeatherEdge.Workers.ResolutionWorker
+  defp worker_module("dutch_buyer"), do: WeatherEdge.Workers.DutchBuyerWorker
+  defp worker_module("dutch_monitor"), do: WeatherEdge.Workers.DutchMonitorWorker
+  defp worker_module("dutch_resolver"), do: WeatherEdge.Workers.DutchResolverWorker
   defp worker_module(_), do: nil
 
   defp worker_label("event_scanner"), do: "Event Scanner"
@@ -499,6 +505,9 @@ defmodule WeatherEdgeWeb.DashboardLive do
   defp worker_label("price_snapshot"), do: "Price Snapshot"
   defp worker_label("position_monitor"), do: "Position Monitor"
   defp worker_label("resolution"), do: "Resolution"
+  defp worker_label("dutch_buyer"), do: "Dutch Buyer"
+  defp worker_label("dutch_monitor"), do: "Dutch Monitor"
+  defp worker_label("dutch_resolver"), do: "Dutch Resolver"
   defp worker_label(w), do: w
 
   defp changeset_error_message(changeset) do
