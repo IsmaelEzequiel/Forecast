@@ -102,18 +102,25 @@ defmodule WeatherEdgeWeb.PositionsLive do
               </button>
             </div>
 
-            <%!-- Recommended picks table --%>
+            <%!-- Recommended picks table with allocation --%>
             <div :if={opp.picks != []} class="overflow-x-auto">
+              <% budget = 50.0 %>
+              <% tokens = if opp.picks_sum > 0, do: budget / opp.picks_sum, else: 0 %>
+              <% payout = tokens %>
+              <% profit = payout - budget %>
+
               <p class="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">
-                Recommended picks (buy YES on these)
+                Buy plan for $<%= format_price(budget) %> budget
               </p>
               <table class="w-full text-xs">
                 <thead>
                   <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
                     <th class="px-2 py-1">Outcome</th>
-                    <th class="px-2 py-1 text-right">Model Prob</th>
+                    <th class="px-2 py-1 text-right">Model</th>
                     <th class="px-2 py-1 text-right">YES Price</th>
                     <th class="px-2 py-1 text-right">Edge</th>
+                    <th class="px-2 py-1 text-right">Invest</th>
+                    <th class="px-2 py-1 text-right">Tokens</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -124,19 +131,45 @@ defmodule WeatherEdgeWeb.PositionsLive do
                     <td class={"px-2 py-1 text-right font-bold #{if pick.edge > 0, do: "text-green-600 dark:text-green-400", else: "text-red-600 dark:text-red-400"}"}>
                       <%= if pick.edge >= 0, do: "+", else: "" %><%= format_pct_raw(pick.edge * 100) %>
                     </td>
+                    <td class="px-2 py-1 text-right text-zinc-700 dark:text-zinc-300 font-medium">
+                      $<%= format_price(pick.price * tokens) %>
+                    </td>
+                    <td class="px-2 py-1 text-right text-zinc-600 dark:text-zinc-400">
+                      <%= format_price(tokens) %>
+                    </td>
                   </tr>
                 </tbody>
                 <tfoot>
                   <tr class="border-t border-zinc-300 dark:border-zinc-600 font-semibold">
                     <td class="px-2 py-1 text-zinc-700 dark:text-zinc-300">Total (<%= length(opp.picks) %> picks)</td>
-                    <td class="px-2 py-1 text-right text-zinc-600 dark:text-zinc-400">
+                    <td class="px-2 py-1 text-right text-zinc-500">
                       <%= format_pct_raw(Enum.reduce(opp.picks, 0.0, fn p, acc -> acc + p.model_prob end) * 100) %>
                     </td>
                     <td class="px-2 py-1 text-right font-bold text-indigo-600 dark:text-indigo-400">$<%= format_price(opp.picks_sum) %></td>
                     <td class="px-2 py-1"></td>
+                    <td class="px-2 py-1 text-right font-bold text-zinc-900 dark:text-zinc-100">$<%= format_price(budget) %></td>
+                    <td class="px-2 py-1 text-right text-zinc-600 dark:text-zinc-400"><%= format_price(tokens) %></td>
                   </tr>
                 </tfoot>
               </table>
+
+              <%!-- Payout summary --%>
+              <div class="mt-2 p-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                <div class="flex flex-wrap items-center gap-4 text-xs">
+                  <span class="text-green-700 dark:text-green-400">
+                    Invest: <span class="font-bold">$<%= format_price(budget) %></span>
+                  </span>
+                  <span class="text-green-700 dark:text-green-400">
+                    Payout if any wins: <span class="font-bold">$<%= format_price(payout) %></span>
+                  </span>
+                  <span class="text-green-700 dark:text-green-400">
+                    Guaranteed profit: <span class="font-bold">$<%= format_price(profit) %> (<%= format_pct_raw(if(budget > 0, do: profit / budget * 100, else: 0)) %>)</span>
+                  </span>
+                  <span class="text-zinc-500 dark:text-zinc-400">
+                    Coverage: <%= format_pct_raw(Enum.reduce(opp.picks, 0.0, fn p, acc -> acc + p.model_prob end) * 100) %>
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div :if={opp.picks == []} class="text-xs text-zinc-400 italic">
@@ -1057,30 +1090,49 @@ defmodule WeatherEdgeWeb.PositionsLive do
     end
   end
 
-  # Fuzzy match: extract temp number from outcome label and try matching distribution keys
-  # e.g. "14 degrees Celsius or higher" -> try "14C", "14C or higher"
-  # e.g. "52°F or below" -> try "52F", "52F or below"
+  # Fuzzy match outcome labels like:
+  # "Will the highest temperature in Munich be 11°C on March 20?" -> "11C"
+  # "Will the highest temperature in NYC be between 38-39°F on March 17?" -> "38F" or "39F"
+  # "Will the highest temperature in NYC be 50°F or higher on March 17?" -> "50F or higher"
+  # "Will the highest temperature in NYC be 31°F or below on March 17?" -> "31F or below"
   defp fuzzy_prob_lookup(probs, label) do
-    # Extract the number from the label
-    case Regex.run(~r/(-?\d+)/, label) do
-      [_, num_str] ->
-        num = num_str
-
-        # Try common patterns
-        matches = [
-          "#{num}C", "#{num}F",
-          "#{num}C or higher", "#{num}C or below",
-          "#{num}F or higher", "#{num}F or below"
-        ]
-
-        Enum.find_value(matches, 0.0, fn key ->
-          case Map.get(probs, key) do
-            nil -> nil
-            prob -> prob
-          end
+    cond do
+      # Range: "between 38-39°F" -> sum probs for 38F and 39F
+      match = Regex.run(~r/between\s+(\d+)\s*-\s*(\d+)\s*°?\s*([CF])/i, label) ->
+        [_, low, high, unit] = match
+        u = String.upcase(unit)
+        low_i = String.to_integer(low)
+        high_i = String.to_integer(high)
+        Enum.reduce(low_i..high_i, 0.0, fn t, acc ->
+          acc + Map.get(probs, "#{t}#{u}", 0.0)
         end)
 
-      _ ->
+      # "or higher": "50°F or higher"
+      match = Regex.run(~r/(\d+)\s*°?\s*([CF])\s+or\s+higher/i, label) ->
+        [_, num, unit] = match
+        u = String.upcase(unit)
+        key = "#{num}#{u} or higher"
+        Map.get(probs, key, Map.get(probs, "#{num}#{u}", 0.0))
+
+      # "or below": "31°F or below"
+      match = Regex.run(~r/(\d+)\s*°?\s*([CF])\s+or\s+below/i, label) ->
+        [_, num, unit] = match
+        u = String.upcase(unit)
+        key = "#{num}#{u} or below"
+        Map.get(probs, key, Map.get(probs, "#{num}#{u}", 0.0))
+
+      # Exact: "be 11°C on" or "be 50°F on"
+      match = Regex.run(~r/be\s+(-?\d+)\s*°?\s*([CF])\s+on/i, label) ->
+        [_, num, unit] = match
+        u = String.upcase(unit)
+        Map.get(probs, "#{num}#{u}", 0.0)
+
+      # Last resort: just extract any number and try both C and F
+      match = Regex.run(~r/(\d+)/, label) ->
+        [_, num] = match
+        Map.get(probs, "#{num}C", Map.get(probs, "#{num}F", 0.0))
+
+      true ->
         0.0
     end
   end

@@ -152,8 +152,53 @@ defmodule WeatherEdge.Trading.DutchEngine do
 
   defp get_model_prob(distribution, label) do
     case distribution do
-      %{probabilities: probs} -> Map.get(probs, label, 0.0)
-      _ -> 0.0
+      %{probabilities: probs} ->
+        case Map.get(probs, label) do
+          nil -> fuzzy_prob_lookup(probs, label)
+          prob -> prob
+        end
+
+      _ ->
+        0.0
+    end
+  end
+
+  # Fuzzy match full-sentence outcome labels to short distribution keys
+  defp fuzzy_prob_lookup(probs, label) do
+    cond do
+      # Range: "between 38-39°F"
+      match = Regex.run(~r/between\s+(\d+)\s*-\s*(\d+)\s*°?\s*([CF])/i, label) ->
+        [_, low, high, unit] = match
+        u = String.upcase(unit)
+        low_i = String.to_integer(low)
+        high_i = String.to_integer(high)
+        Enum.reduce(low_i..high_i, 0.0, fn t, acc -> acc + Map.get(probs, "#{t}#{u}", 0.0) end)
+
+      # "or higher"
+      match = Regex.run(~r/(\d+)\s*°?\s*([CF])\s+or\s+higher/i, label) ->
+        [_, num, unit] = match
+        u = String.upcase(unit)
+        Map.get(probs, "#{num}#{u} or higher", Map.get(probs, "#{num}#{u}", 0.0))
+
+      # "or below"
+      match = Regex.run(~r/(\d+)\s*°?\s*([CF])\s+or\s+below/i, label) ->
+        [_, num, unit] = match
+        u = String.upcase(unit)
+        Map.get(probs, "#{num}#{u} or below", Map.get(probs, "#{num}#{u}", 0.0))
+
+      # Exact: "be 11°C on"
+      match = Regex.run(~r/be\s+(-?\d+)\s*°?\s*([CF])\s+on/i, label) ->
+        [_, num, unit] = match
+        u = String.upcase(unit)
+        Map.get(probs, "#{num}#{u}", 0.0)
+
+      # Fallback: extract any number
+      match = Regex.run(~r/(\d+)/, label) ->
+        [_, num] = match
+        Map.get(probs, "#{num}C", Map.get(probs, "#{num}F", 0.0))
+
+      true ->
+        0.0
     end
   end
 
