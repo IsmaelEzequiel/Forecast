@@ -16,12 +16,17 @@ defmodule WeatherEdge.Stations.Station do
     field :slug_pattern, :string
     field :tag_slug, :string
     field :temp_unit, :string, default: "C"
+    field :strategy, :string, default: "dutch"
+    field :dutch_max_sum, :float, default: 0.85
+    field :dutch_min_coverage, :float, default: 0.70
+    field :dutch_max_outcomes, :integer, default: 5
+    field :dutch_min_profit_pct, :float, default: 0.05
 
     timestamps(type: :utc_datetime)
   end
 
   @required_fields ~w(code city latitude longitude country)a
-  @optional_fields ~w(wunderground_url monitoring_enabled auto_buy_enabled max_buy_price buy_amount_usdc slug_pattern tag_slug temp_unit)a
+  @optional_fields ~w(wunderground_url monitoring_enabled auto_buy_enabled max_buy_price buy_amount_usdc slug_pattern tag_slug temp_unit strategy dutch_max_sum dutch_min_coverage dutch_max_outcomes dutch_min_profit_pct)a
 
   def changeset(station, attrs) do
     station

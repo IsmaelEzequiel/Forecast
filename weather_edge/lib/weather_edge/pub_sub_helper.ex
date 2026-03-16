@@ -18,6 +18,12 @@ defmodule WeatherEdge.PubSubHelper do
   def portfolio_position_update, do: "portfolio:position_update"
   def signals_new, do: "signals:new"
 
+  # Dutch position topics
+  def dutch_price_update, do: "dutch:price_update"
+  def dutch_new_position, do: "dutch:new_position"
+  def dutch_sold, do: "dutch:sold"
+  def dutch_resolved, do: "dutch:resolved"
+
   # Broadcast and subscribe wrappers
 
   def broadcast(topic, message) do

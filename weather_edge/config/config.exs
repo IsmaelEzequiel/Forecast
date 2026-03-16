@@ -65,7 +65,9 @@ config :weather_edge, Oban,
        {"*/5 * * * *", WeatherEdge.Workers.MispricingWorker, queue: :signals},
        {"*/5 * * * *", WeatherEdge.Workers.PriceSnapshotWorker, queue: :signals},
        {"*/10 * * * *", WeatherEdge.Workers.PositionMonitorWorker, queue: :signals},
-       {"0 6,12,23 * * *", WeatherEdge.Workers.ResolutionWorker, queue: :cleanup}
+       {"0 6,12,23 * * *", WeatherEdge.Workers.ResolutionWorker, queue: :cleanup},
+       {"*/5 * * * *", WeatherEdge.Workers.DutchMonitorWorker, queue: :signals},
+       {"0 3 * * *", WeatherEdge.Workers.DutchResolverWorker, queue: :cleanup}
      ]}
   ]
 

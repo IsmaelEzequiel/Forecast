@@ -33,6 +33,10 @@ defmodule WeatherEdgeWeb.Components.HeaderComponent do
           Signals
         </.link>
 
+        <.link navigate="/positions" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
+          Positions
+        </.link>
+
         <.link navigate="/analytics" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">
           Analytics
         </.link>

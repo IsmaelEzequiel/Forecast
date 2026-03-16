@@ -31,6 +31,7 @@ defmodule WeatherEdgeWeb.Router do
       live "/docs", DocsLive
       live "/analytics", AnalyticsLive
       live "/signals", SignalsLive
+      live "/positions", PositionsLive
     end
   end
 

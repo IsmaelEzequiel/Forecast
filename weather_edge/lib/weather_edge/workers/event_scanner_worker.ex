@@ -117,9 +117,20 @@ defmodule WeatherEdge.Workers.EventScannerWorker do
 
   defp maybe_enqueue_auto_buyer(station, cluster) do
     if station.auto_buy_enabled do
-      %{station_code: station.code, event_id: cluster.event_id}
-      |> WeatherEdge.Workers.AutoBuyerWorker.new(queue: :trading)
-      |> Oban.insert()
+      case Map.get(station, :strategy, "dutch") do
+        "dutch" ->
+          %{station_code: station.code, cluster_id: cluster.id}
+          |> WeatherEdge.Workers.DutchBuyerWorker.new(queue: :trading)
+          |> Oban.insert()
+
+        "single" ->
+          %{station_code: station.code, event_id: cluster.event_id}
+          |> WeatherEdge.Workers.AutoBuyerWorker.new(queue: :trading)
+          |> Oban.insert()
+
+        "manual" ->
+          :ok
+      end
     end
   end
 end
