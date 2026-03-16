@@ -2,6 +2,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
   use WeatherEdgeWeb, :live_view
 
   alias WeatherEdge.PubSubHelper
+  alias WeatherEdge.Markets
 
   import WeatherEdgeWeb.Components.HeaderComponent
 
@@ -13,18 +14,23 @@ defmodule WeatherEdgeWeb.PositionsLive do
       Phoenix.PubSub.subscribe(WeatherEdge.PubSub, "dutch:sold")
       Phoenix.PubSub.subscribe(WeatherEdge.PubSub, "dutch:resolved")
       PubSubHelper.subscribe(PubSubHelper.portfolio_balance_update())
+      PubSubHelper.subscribe(PubSubHelper.portfolio_position_update())
     end
 
-    open_positions = dutch_call(:list_open_with_orders, [], [])
+    open_dutch = dutch_call(:list_open_with_orders, [], [])
     history = dutch_call(:list_closed, [[limit: 20]], [])
     stats = dutch_call(:compute_performance_stats, [], default_stats())
+    sidecar_positions = :persistent_term.get(:sidecar_positions, [])
+    opportunities = if connected?(socket), do: scan_dutch_opportunities(), else: []
 
     wallet_address = Application.get_env(:weather_edge, :polymarket)[:wallet_address]
     cached_balance = :persistent_term.get(:sidecar_balance, nil)
 
     {:ok,
      assign(socket,
-       open_positions: open_positions,
+       open_positions: open_dutch,
+       sidecar_positions: sidecar_positions,
+       opportunities: opportunities,
        history: history,
        stats: stats,
        balance: cached_balance,
@@ -32,6 +38,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
        selling: nil,
        sell_progress: nil,
        confirm_sell: nil,
+       buying_dutch: nil,
        history_expanded: false
      )}
   end
@@ -43,15 +50,83 @@ defmodule WeatherEdgeWeb.PositionsLive do
       <.dashboard_header balance={@balance} wallet_address={@wallet_address} />
 
       <%!-- Summary Bar --%>
-      <.summary_bar open_positions={@open_positions} stats={@stats} />
+      <.summary_bar open_positions={@open_positions} sidecar_positions={@sidecar_positions} stats={@stats} />
 
-      <%!-- Open Position Cards --%>
-      <div :if={@open_positions == []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-8 text-center">
-        <p class="text-sm text-zinc-400 dark:text-zinc-500">
-          No open dutching positions. Positions will appear here when the dutching strategy places orders.
-        </p>
+      <%!-- Dutch Opportunities --%>
+      <div :if={@opportunities != []} class="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 p-4 space-y-3">
+        <h3 class="text-xs font-semibold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">
+          Dutch Opportunities (<%= length(@opportunities) %>)
+        </h3>
+        <div class="space-y-2">
+          <div :for={opp <- @opportunities} class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono font-bold text-sm text-zinc-900 dark:text-zinc-100"><%= opp.station_code %></span>
+                <span class="text-xs text-zinc-500 dark:text-zinc-400"><%= opp.title %></span>
+                <span class="text-xs text-zinc-400"><%= opp.target_date %></span>
+              </div>
+              <div class="flex items-center gap-3 mt-1 text-xs">
+                <span class="text-zinc-500">Sum YES: <span class="font-medium text-amber-600 dark:text-amber-400">$<%= format_price(opp.sum_yes) %></span></span>
+                <span class="text-zinc-500">Deviation: <span class="font-bold text-green-600 dark:text-green-400"><%= format_pct_raw((1.0 - opp.sum_yes) * 100) %></span></span>
+                <span class="text-zinc-500">Outcomes: <span class="font-medium"><%= opp.num_outcomes %></span></span>
+                <span :if={opp.est_profit_pct} class="text-green-600 dark:text-green-400 font-medium">
+                  ~<%= format_pct_raw(opp.est_profit_pct * 100) %> profit
+                </span>
+              </div>
+            </div>
+            <button
+              phx-click="execute_dutch"
+              phx-value-cluster-id={opp.cluster_id}
+              phx-value-station-code={opp.station_code}
+              disabled={@buying_dutch == opp.cluster_id}
+              class={[
+                "px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap",
+                if(@buying_dutch == opp.cluster_id,
+                  do: "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed",
+                  else: "bg-indigo-600 text-white hover:bg-indigo-700"
+                )
+              ]}
+            >
+              <%= if @buying_dutch == opp.cluster_id, do: "Buying...", else: "BUY DUTCH" %>
+            </button>
+          </div>
+        </div>
       </div>
 
+      <div :if={@opportunities == []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 text-center">
+        <p class="text-xs text-zinc-400">No dutch opportunities right now. Opportunities appear when Sum YES &lt; $0.85 on active clusters.</p>
+      </div>
+
+      <%!-- Live Polymarket Positions (sidecar) --%>
+      <div :if={@sidecar_positions != []} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+        <h3 class="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-3">Live Polymarket Positions (<%= length(@sidecar_positions) %>)</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs min-w-[500px]">
+            <thead>
+              <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
+                <th class="px-2 py-1.5">Outcome</th>
+                <th class="px-2 py-1.5 text-right">Size</th>
+                <th class="px-2 py-1.5 text-right">Avg Price</th>
+                <th class="px-2 py-1.5 text-right">Current</th>
+                <th class="px-2 py-1.5 text-right">Value</th>
+                <th class="px-2 py-1.5 text-right">P&L</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={sp <- @sidecar_positions} class="border-b border-zinc-100 dark:border-zinc-800">
+                <td class="px-2 py-1.5 text-zinc-900 dark:text-zinc-100 font-medium"><%= sp["title"] || sp["outcome"] || "-" %></td>
+                <td class="px-2 py-1.5 text-right text-zinc-600 dark:text-zinc-400"><%= sp["size"] || "-" %></td>
+                <td class="px-2 py-1.5 text-right text-zinc-600 dark:text-zinc-400">$<%= fmt_sidecar(sp["avgPrice"]) %></td>
+                <td class="px-2 py-1.5 text-right text-zinc-600 dark:text-zinc-400">$<%= fmt_sidecar(sp["curPrice"]) %></td>
+                <td class="px-2 py-1.5 text-right text-zinc-600 dark:text-zinc-400">$<%= fmt_sidecar(sp["currentValue"]) %></td>
+                <td class={"px-2 py-1.5 text-right font-semibold #{pnl_color(parse_num(sp["cashPnl"]))}"}>$<%= fmt_sidecar(sp["cashPnl"]) %></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <%!-- Dutch Position Cards --%>
       <div :for={group <- @open_positions} class="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
         <.position_card
           group={group}
@@ -83,27 +158,41 @@ defmodule WeatherEdgeWeb.PositionsLive do
   # ──────────────────────────────────────────────────────────
 
   defp summary_bar(assigns) do
-    total_invested =
+    dutch_invested =
       Enum.reduce(assigns.open_positions, 0.0, fn g, acc ->
         acc + (Map.get(g, :total_invested, 0.0) || 0.0)
       end)
 
-    current_value =
+    dutch_value =
       Enum.reduce(assigns.open_positions, 0.0, fn g, acc ->
         acc + (Map.get(g, :current_value, 0.0) || 0.0)
       end)
 
-    total_pnl = current_value - total_invested
+    sidecar_value =
+      Enum.reduce(assigns.sidecar_positions, 0.0, fn sp, acc ->
+        acc + (parse_num(sp["currentValue"]) || 0.0)
+      end)
+
+    sidecar_pnl =
+      Enum.reduce(assigns.sidecar_positions, 0.0, fn sp, acc ->
+        acc + (parse_num(sp["cashPnl"]) || 0.0)
+      end)
+
+    total_count = length(assigns.open_positions) + length(assigns.sidecar_positions)
+    total_invested = dutch_invested
+    current_value = dutch_value + sidecar_value
+    total_pnl = (dutch_value - dutch_invested) + sidecar_pnl
 
     assigns =
       assigns
+      |> assign(:total_count, total_count)
       |> assign(:total_invested, total_invested)
       |> assign(:current_value, current_value)
       |> assign(:total_pnl, total_pnl)
 
     ~H"""
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <.stat_card label="Open Positions" value={"#{length(@open_positions)}"} />
+      <.stat_card label="Open Positions" value={"#{@total_count}"} />
       <.stat_card label="Total Invested" value={"$#{format_price(@total_invested)}"} />
       <.stat_card label="Current Value" value={"$#{format_price(@current_value)}"} />
       <.stat_card
@@ -183,12 +272,12 @@ defmodule WeatherEdgeWeb.PositionsLive do
     ~H"""
     <div class="p-4 space-y-4">
       <%!-- Card Header --%>
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <span class="font-mono text-lg font-bold text-zinc-900 dark:text-zinc-100">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+          <span class="font-mono text-base sm:text-lg font-bold text-zinc-900 dark:text-zinc-100">
             <%= @station_code %>
           </span>
-          <span :if={@city != ""} class="text-sm text-zinc-500 dark:text-zinc-400"><%= @city %></span>
+          <span :if={@city != ""} class="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400"><%= @city %></span>
           <span :if={@target_date} class="text-xs text-zinc-400">
             <%= Calendar.strftime(@target_date, "%b %d, %Y") %>
           </span>
@@ -232,7 +321,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
 
       <%!-- Outcome Table --%>
       <div :if={@orders != []} class="overflow-x-auto">
-        <table class="w-full text-xs">
+        <table class="w-full text-xs min-w-[450px]">
           <thead>
             <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
               <th class="px-2 py-1.5">Outcome</th>
@@ -273,7 +362,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
       </div>
 
       <%!-- Sell vs Hold Comparison --%>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <%!-- SELL NOW box --%>
         <div class={[
           "rounded-lg border p-3 space-y-2",
@@ -364,9 +453,9 @@ defmodule WeatherEdgeWeb.PositionsLive do
       |> assign(:group_id, Map.get(group, :id))
 
     ~H"""
-    <div class="fixed inset-0 z-50 flex items-center justify-center">
+    <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div class="fixed inset-0 bg-black/40" phx-click="cancel_sell" />
-      <div class="relative z-50 w-full max-w-md rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-6 shadow-xl space-y-4">
+      <div class="relative z-50 w-full sm:max-w-md rounded-t-xl sm:rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4 sm:p-6 shadow-xl space-y-4">
         <h3 class="text-lg font-bold text-zinc-900 dark:text-zinc-100">
           Confirm Sell — <%= @station_code %>
         </h3>
@@ -429,7 +518,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
         </div>
 
         <div :if={@history != []} class="overflow-x-auto">
-          <table class="w-full text-xs">
+          <table class="w-full text-xs min-w-[500px]">
             <thead>
               <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
                 <th class="px-3 py-2">Date</th>
@@ -554,6 +643,29 @@ defmodule WeatherEdgeWeb.PositionsLive do
     {:noreply, assign(socket, history_expanded: !socket.assigns.history_expanded)}
   end
 
+  def handle_event("execute_dutch", %{"cluster-id" => cluster_id_str, "station-code" => station_code}, socket) do
+    cluster_id = String.to_integer(cluster_id_str)
+
+    socket = assign(socket, :buying_dutch, cluster_id)
+
+    lv = self()
+    Task.start(fn ->
+      result =
+        %{station_code: station_code, cluster_id: cluster_id}
+        |> WeatherEdge.Workers.DutchBuyerWorker.new(queue: :trading)
+        |> Oban.insert()
+
+      send(lv, {:dutch_buy_result, cluster_id, result})
+    end)
+
+    {:noreply, put_flash(socket, :info, "Dutch buy job queued for #{station_code}")}
+  end
+
+  def handle_event("refresh_opportunities", _params, socket) do
+    opportunities = scan_dutch_opportunities()
+    {:noreply, assign(socket, :opportunities, opportunities)}
+  end
+
   # Catch-all for events from dashboard_header (e.g. toggle_add_station_modal)
   @impl true
   def handle_event(_event, _params, socket) do
@@ -656,8 +768,23 @@ defmodule WeatherEdgeWeb.PositionsLive do
   end
 
   @impl true
+  def handle_info({:dutch_buy_result, _cluster_id, _result}, socket) do
+    opportunities = scan_dutch_opportunities()
+    open_dutch = dutch_call(:list_open_with_orders, [], socket.assigns.open_positions)
+
+    {:noreply,
+     socket
+     |> assign(buying_dutch: nil, opportunities: opportunities, open_positions: open_dutch)}
+  end
+
+  @impl true
   def handle_info({:balance_updated, balance}, socket) do
     {:noreply, assign(socket, balance: balance)}
+  end
+
+  @impl true
+  def handle_info({:positions_synced, positions}, socket) do
+    {:noreply, assign(socket, sidecar_positions: positions)}
   end
 
   @impl true
@@ -777,6 +904,49 @@ defmodule WeatherEdgeWeb.PositionsLive do
   defp exit_result_label(nil), do: "-"
   defp exit_result_label(s) when is_binary(s), do: String.upcase(s)
   defp exit_result_label(_), do: "-"
+
+  defp scan_dutch_opportunities do
+    Markets.get_active_clusters()
+    |> Enum.filter(fn c -> c.target_date && Date.compare(c.target_date, Date.utc_today()) == :gt end)
+    |> Enum.map(fn cluster ->
+      outcomes = cluster.outcomes || []
+      sum_yes = Enum.reduce(outcomes, 0.0, fn o, acc -> acc + (o["yes_price"] || o["price"] || 0) end)
+      deviation = 1.0 - sum_yes
+
+      %{
+        cluster_id: cluster.id,
+        station_code: cluster.station_code,
+        title: cluster.title || "#{cluster.station_code} #{cluster.target_date}",
+        target_date: cluster.target_date,
+        sum_yes: sum_yes,
+        deviation: deviation,
+        num_outcomes: length(outcomes),
+        est_profit_pct: if(sum_yes > 0 and sum_yes < 1.0, do: 1.0 / sum_yes - 1.0, else: nil)
+      }
+    end)
+    |> Enum.filter(fn opp -> opp.sum_yes > 0 and opp.sum_yes < 0.85 end)
+    |> Enum.sort_by(& &1.deviation, :desc)
+  rescue
+    _ -> []
+  end
+
+  defp fmt_sidecar(nil), do: "-"
+  defp fmt_sidecar(val) when is_number(val), do: :erlang.float_to_binary(val * 1.0, decimals: 2)
+  defp fmt_sidecar(val) when is_binary(val) do
+    case Float.parse(val) do
+      {f, _} -> :erlang.float_to_binary(f, decimals: 2)
+      :error -> val
+    end
+  end
+
+  defp parse_num(nil), do: 0.0
+  defp parse_num(val) when is_number(val), do: val * 1.0
+  defp parse_num(val) when is_binary(val) do
+    case Float.parse(val) do
+      {f, _} -> f
+      :error -> 0.0
+    end
+  end
 
   defp exit_type_label("won"), do: "Resolution (Win)"
   defp exit_type_label("lost"), do: "Resolution (Loss)"
