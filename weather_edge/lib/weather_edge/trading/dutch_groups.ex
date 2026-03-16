@@ -76,12 +76,30 @@ defmodule WeatherEdge.Trading.DutchGroups do
     avg_profit =
       if total > 0, do: total_pnl / total, else: 0.0
 
+    avg_hold_days =
+      case closed do
+        [] ->
+          0.0
+
+        groups ->
+          days =
+            Enum.map(groups, fn g ->
+              case g.closed_at do
+                %DateTime{} = closed_at -> Date.diff(DateTime.to_date(closed_at), g.target_date) |> abs()
+                _ -> 0
+              end
+            end)
+
+          Enum.sum(days) / length(days)
+      end
+
     %{
       total_trades: total,
       wins: wins,
       win_rate: if(total > 0, do: wins / total, else: 0.0),
       total_pnl: total_pnl,
-      avg_profit: avg_profit
+      avg_profit: avg_profit,
+      avg_hold_days: avg_hold_days
     }
   end
 end
