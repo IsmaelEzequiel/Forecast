@@ -57,38 +57,91 @@ defmodule WeatherEdgeWeb.PositionsLive do
         <h3 class="text-xs font-semibold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">
           Dutch Opportunities (<%= length(@opportunities) %>)
         </h3>
-        <div class="space-y-2">
-          <div :for={opp <- @opportunities} class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
-            <div class="flex-1">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-mono font-bold text-sm text-zinc-900 dark:text-zinc-100"><%= opp.station_code %></span>
-                <span class="text-xs text-zinc-500 dark:text-zinc-400"><%= opp.title %></span>
-                <span class="text-xs text-zinc-400"><%= opp.target_date %></span>
+        <div class="space-y-3">
+          <div :for={opp <- @opportunities} class="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 space-y-3">
+            <%!-- Header row --%>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-mono font-bold text-sm text-zinc-900 dark:text-zinc-100"><%= opp.station_code %></span>
+                  <span class="text-xs text-zinc-500 dark:text-zinc-400"><%= opp.title %></span>
+                  <span class="text-xs text-zinc-400"><%= opp.target_date %></span>
+                  <a
+                    :if={opp.event_slug}
+                    href={"https://polymarket.com/event/#{opp.event_slug}"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 hover:underline"
+                  >
+                    Polymarket ->
+                  </a>
+                </div>
+                <div class="flex items-center gap-3 mt-1 text-xs flex-wrap">
+                  <span class="text-zinc-500">Sum YES: <span class="font-medium text-amber-600 dark:text-amber-400">$<%= format_price(opp.sum_yes) %></span></span>
+                  <span class="text-zinc-500">Deviation: <span class="font-bold text-green-600 dark:text-green-400"><%= format_pct_raw((1.0 - opp.sum_yes) * 100) %></span></span>
+                  <span :if={opp.picks_sum > 0} class="text-zinc-500">Picks Sum: <span class="font-bold text-indigo-600 dark:text-indigo-400">$<%= format_price(opp.picks_sum) %></span></span>
+                  <span :if={opp.est_profit_pct} class="text-green-600 dark:text-green-400 font-bold">
+                    ~<%= format_pct_raw(opp.est_profit_pct * 100) %> guaranteed profit
+                  </span>
+                </div>
               </div>
-              <div class="flex items-center gap-3 mt-1 text-xs">
-                <span class="text-zinc-500">Sum YES: <span class="font-medium text-amber-600 dark:text-amber-400">$<%= format_price(opp.sum_yes) %></span></span>
-                <span class="text-zinc-500">Deviation: <span class="font-bold text-green-600 dark:text-green-400"><%= format_pct_raw((1.0 - opp.sum_yes) * 100) %></span></span>
-                <span class="text-zinc-500">Outcomes: <span class="font-medium"><%= opp.num_outcomes %></span></span>
-                <span :if={opp.est_profit_pct} class="text-green-600 dark:text-green-400 font-medium">
-                  ~<%= format_pct_raw(opp.est_profit_pct * 100) %> profit
-                </span>
-              </div>
+              <button
+                phx-click="execute_dutch"
+                phx-value-cluster-id={opp.cluster_id}
+                phx-value-station-code={opp.station_code}
+                disabled={@buying_dutch == opp.cluster_id}
+                class={[
+                  "px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap",
+                  if(@buying_dutch == opp.cluster_id,
+                    do: "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed",
+                    else: "bg-indigo-600 text-white hover:bg-indigo-700"
+                  )
+                ]}
+              >
+                <%= if @buying_dutch == opp.cluster_id, do: "Buying...", else: "AUTO BUY" %>
+              </button>
             </div>
-            <button
-              phx-click="execute_dutch"
-              phx-value-cluster-id={opp.cluster_id}
-              phx-value-station-code={opp.station_code}
-              disabled={@buying_dutch == opp.cluster_id}
-              class={[
-                "px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap",
-                if(@buying_dutch == opp.cluster_id,
-                  do: "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed",
-                  else: "bg-indigo-600 text-white hover:bg-indigo-700"
-                )
-              ]}
-            >
-              <%= if @buying_dutch == opp.cluster_id, do: "Buying...", else: "BUY DUTCH" %>
-            </button>
+
+            <%!-- Recommended picks table --%>
+            <div :if={opp.picks != []} class="overflow-x-auto">
+              <p class="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">
+                Recommended picks (buy YES on these)
+              </p>
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="border-b border-zinc-200 dark:border-zinc-700 text-left text-zinc-500 dark:text-zinc-400">
+                    <th class="px-2 py-1">Outcome</th>
+                    <th class="px-2 py-1 text-right">Model Prob</th>
+                    <th class="px-2 py-1 text-right">YES Price</th>
+                    <th class="px-2 py-1 text-right">Edge</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={pick <- opp.picks} class="border-b border-zinc-100 dark:border-zinc-800">
+                    <td class="px-2 py-1 font-medium text-zinc-900 dark:text-zinc-100"><%= pick.label %></td>
+                    <td class="px-2 py-1 text-right text-zinc-600 dark:text-zinc-400"><%= format_pct_raw(pick.model_prob * 100) %></td>
+                    <td class="px-2 py-1 text-right font-medium text-amber-600 dark:text-amber-400">$<%= format_price(pick.price) %></td>
+                    <td class={"px-2 py-1 text-right font-bold #{if pick.edge > 0, do: "text-green-600 dark:text-green-400", else: "text-red-600 dark:text-red-400"}"}>
+                      <%= if pick.edge >= 0, do: "+", else: "" %><%= format_pct_raw(pick.edge * 100) %>
+                    </td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr class="border-t border-zinc-300 dark:border-zinc-600 font-semibold">
+                    <td class="px-2 py-1 text-zinc-700 dark:text-zinc-300">Total (<%= length(opp.picks) %> picks)</td>
+                    <td class="px-2 py-1 text-right text-zinc-600 dark:text-zinc-400">
+                      <%= format_pct_raw(Enum.reduce(opp.picks, 0.0, fn p, acc -> acc + p.model_prob end) * 100) %>
+                    </td>
+                    <td class="px-2 py-1 text-right font-bold text-indigo-600 dark:text-indigo-400">$<%= format_price(opp.picks_sum) %></td>
+                    <td class="px-2 py-1"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div :if={opp.picks == []} class="text-xs text-zinc-400 italic">
+              No forecast data available — run Forecast Refresh first
+            </div>
           </div>
         </div>
       </div>
@@ -911,23 +964,66 @@ defmodule WeatherEdgeWeb.PositionsLive do
     |> Enum.map(fn cluster ->
       outcomes = cluster.outcomes || []
       sum_yes = Enum.reduce(outcomes, 0.0, fn o, acc -> acc + (o["yes_price"] || o["price"] || 0) end)
-      deviation = 1.0 - sum_yes
+
+      # Get model distribution for recommended picks
+      picks = compute_recommended_picks(cluster, outcomes)
+
+      # Compute sum of just the recommended picks
+      picks_sum = Enum.reduce(picks, 0.0, fn p, acc -> acc + p.price end)
 
       %{
         cluster_id: cluster.id,
         station_code: cluster.station_code,
         title: cluster.title || "#{cluster.station_code} #{cluster.target_date}",
         target_date: cluster.target_date,
+        event_slug: cluster.event_slug,
         sum_yes: sum_yes,
-        deviation: deviation,
+        deviation: 1.0 - sum_yes,
         num_outcomes: length(outcomes),
-        est_profit_pct: if(sum_yes > 0 and sum_yes < 1.0, do: 1.0 / sum_yes - 1.0, else: nil)
+        est_profit_pct: if(picks_sum > 0 and picks_sum < 1.0, do: 1.0 / picks_sum - 1.0, else: nil),
+        picks_sum: picks_sum,
+        picks: picks
       }
     end)
-    |> Enum.filter(fn opp -> opp.sum_yes > 0 and opp.sum_yes < 0.85 end)
+    |> Enum.filter(fn opp -> opp.sum_yes > 0 and opp.sum_yes < 0.90 end)
     |> Enum.sort_by(& &1.deviation, :desc)
   rescue
     _ -> []
+  end
+
+  defp compute_recommended_picks(cluster, outcomes) do
+    # Try to get model distribution
+    dist =
+      case WeatherEdge.Stations.get_by_code(cluster.station_code) do
+        {:ok, station} ->
+          unit = station.temp_unit || "C"
+          case WeatherEdge.Probability.Engine.compute_distribution(cluster.station_code, cluster.target_date, temp_unit: unit) do
+            {:ok, d} -> d
+            _ -> nil
+          end
+        _ -> nil
+      end
+
+    # Build candidates with model probability + market price
+    candidates =
+      outcomes
+      |> Enum.map(fn o ->
+        label = o["outcome_label"] || o["label"] || ""
+        price = o["yes_price"] || o["price"] || 0
+        model_prob = if dist, do: Map.get(dist.probabilities, label, 0.0), else: 0.0
+
+        %{
+          label: label,
+          price: price,
+          model_prob: model_prob,
+          edge: model_prob - price
+        }
+      end)
+      |> Enum.filter(fn c -> c.price > 0 and c.price < 0.50 and c.model_prob >= 0.02 end)
+      |> Enum.sort_by(& &1.model_prob, :desc)
+      |> Enum.take(4)
+
+    candidates
   end
 
   defp fmt_sidecar(nil), do: "-"

@@ -11,6 +11,7 @@ defmodule WeatherEdge.Trading.DutchEngine do
   Greedily adds outcomes sorted by model probability while respecting constraints.
   """
   def select_outcomes(cluster_outcomes, distribution, live_prices, config) do
+    require Logger
     max_sum = Map.get(config, :dutch_max_sum, 0.85)
     min_coverage = Map.get(config, :dutch_min_coverage, 0.70)
     max_outcomes = Map.get(config, :dutch_max_outcomes, 5)
@@ -21,7 +22,7 @@ defmodule WeatherEdge.Trading.DutchEngine do
       |> Enum.map(fn o ->
         label = o["outcome_label"] || o["label"]
         model_prob = get_model_prob(distribution, label)
-        price = Map.get(live_prices, label, o["yes_price"] || 0)
+        price = Map.get(live_prices, label, o["yes_price"] || o["price"] || 0)
         token_id = extract_token_id(o)
 
         %{
@@ -32,7 +33,18 @@ defmodule WeatherEdge.Trading.DutchEngine do
           raw: o
         }
       end)
-      |> Enum.filter(fn c -> c.model_prob >= 0.02 and c.price > 0 and c.price < 0.50 end)
+
+    # Log for debugging
+    with_prob = Enum.filter(candidates, fn c -> c.model_prob > 0 end)
+    _with_price = Enum.filter(candidates, fn c -> c.price > 0 end)
+
+    if with_prob == [] do
+      Logger.warning("DutchEngine: No outcomes matched model distribution. Labels: #{inspect(Enum.map(candidates, & &1.outcome_label) |> Enum.take(5))} | Dist keys: #{inspect(Map.keys(distribution.probabilities || %{}) |> Enum.take(5))}")
+    end
+
+    candidates =
+      candidates
+      |> Enum.filter(fn c -> c.model_prob >= 0.02 and c.price > 0 end)
       |> Enum.sort_by(& &1.model_prob, :desc)
 
     # Greedily select outcomes
