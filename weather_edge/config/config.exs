@@ -61,14 +61,14 @@ config :weather_edge, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"0 */2 * * *", WeatherEdge.Workers.EventScannerWorker, queue: :scanner},
-       {"*/15 * * * *", WeatherEdge.Workers.ForecastRefreshWorker, queue: :forecasts},
-       {"*/5 * * * *", WeatherEdge.Workers.MispricingWorker, queue: :signals},
-       {"*/5 * * * *", WeatherEdge.Workers.PriceSnapshotWorker, queue: :signals},
+       {"* */2 * * *", WeatherEdge.Workers.ForecastRefreshWorker, queue: :forecasts},
+       {"* */1 * * *", WeatherEdge.Workers.MispricingWorker, queue: :signals},
+       {"* */1 * * *", WeatherEdge.Workers.PriceSnapshotWorker, queue: :signals},
        {"*/10 * * * *", WeatherEdge.Workers.PositionMonitorWorker, queue: :signals},
        {"0 6,12,23 * * *", WeatherEdge.Workers.ResolutionWorker, queue: :cleanup},
-       {"*/5 * * * *", WeatherEdge.Workers.DutchMonitorWorker, queue: :signals},
-       {"0 3 * * *", WeatherEdge.Workers.DutchResolverWorker, queue: :cleanup},
-       {"0 4 * * *", WeatherEdge.Workers.DataCleanupWorker, queue: :cleanup}
+       {"* */1 * * *", WeatherEdge.Workers.DutchMonitorWorker, queue: :signals},
+       {"0 6 * * *", WeatherEdge.Workers.DutchResolverWorker, queue: :cleanup},
+       {"0 6 * * *", WeatherEdge.Workers.DataCleanupWorker, queue: :cleanup}
      ]}
   ]
 
