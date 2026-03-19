@@ -11,12 +11,10 @@ defmodule WeatherEdge.PubSubHelper do
   def station_forecast_update(code), do: "station:#{code}:forecast_update"
   def station_price_update(code), do: "station:#{code}:price_update"
   def station_auto_buy(code), do: "trading:#{code}"
-  def station_signal(code), do: "station:#{code}:signal"
   def stations, do: "stations"
 
   def portfolio_balance_update, do: "portfolio:balance_update"
   def portfolio_position_update, do: "portfolio:position_update"
-  def signals_new, do: "signals:new"
 
   # Dutch position topics
   def dutch_price_update, do: "dutch:price_update"

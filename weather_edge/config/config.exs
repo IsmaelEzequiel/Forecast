@@ -62,7 +62,6 @@ config :weather_edge, Oban,
      crontab: [
        {"0 */2 * * *", WeatherEdge.Workers.EventScannerWorker, queue: :scanner},
        {"* */2 * * *", WeatherEdge.Workers.ForecastRefreshWorker, queue: :forecasts},
-       {"* */1 * * *", WeatherEdge.Workers.MispricingWorker, queue: :signals},
        {"* */1 * * *", WeatherEdge.Workers.PriceSnapshotWorker, queue: :signals},
        {"*/10 * * * *", WeatherEdge.Workers.PositionMonitorWorker, queue: :signals},
        {"0 6,12,23 * * *", WeatherEdge.Workers.ResolutionWorker, queue: :cleanup},

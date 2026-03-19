@@ -1,9 +1,8 @@
 defmodule WeatherEdge.Workers.DataCleanupWorker do
   @moduledoc """
-  Runs daily. Deletes old data older than 7 days to keep the DB lean:
+  Runs daily. Deletes old data older than 30 days to keep the DB lean:
   - forecast_snapshots (high volume, ~10 models * stations * dates * every 15min)
   - market_snapshots (price history, every 5min)
-  - signals (mispricing signals, every 5min)
   - orders with status filled/cancelled
   - resolved market_clusters + their positions
   - closed dutch_groups + their dutch_orders
@@ -27,7 +26,6 @@ defmodule WeatherEdge.Workers.DataCleanupWorker do
     results = [
       {:forecast_snapshots, clean_forecast_snapshots(cutoff_dt)},
       {:market_snapshots, clean_market_snapshots(cutoff_dt)},
-      {:signals, clean_signals(cutoff_dt)},
       {:orders, clean_old_orders(cutoff_dt)},
       {:market_clusters, clean_resolved_clusters(cutoff_date)},
       {:dutch_groups, clean_closed_dutch(cutoff_dt)}
@@ -54,14 +52,6 @@ defmodule WeatherEdge.Workers.DataCleanupWorker do
   defp clean_market_snapshots(cutoff_dt) do
     {count, _} =
       from(s in "market_snapshots", where: s.snapshot_at < ^cutoff_dt)
-      |> Repo.delete_all()
-
-    count
-  end
-
-  defp clean_signals(cutoff_dt) do
-    {count, _} =
-      from(s in "signals", where: s.computed_at < ^cutoff_dt)
       |> Repo.delete_all()
 
     count

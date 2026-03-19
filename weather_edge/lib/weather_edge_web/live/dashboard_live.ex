@@ -9,7 +9,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
   import WeatherEdgeWeb.Components.HeaderComponent
   import WeatherEdgeWeb.Components.AddStationModalComponent
   import WeatherEdgeWeb.Components.StationCardComponent
-  import WeatherEdgeWeb.Components.SignalFeedComponent
   import WeatherEdgeWeb.Components.PortfolioSummaryComponent
 
   @impl true
@@ -46,7 +45,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
        positions: positions,
        positions_by_cluster: positions_by_cluster,
        sidecar_positions: sidecar_positions,
-       signals: WeatherEdge.Signals.list_recent(limit: 50),
        balance: cached_balance,
        wallet_address: wallet_address,
        show_add_station_modal: false,
@@ -56,8 +54,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
        modal_error: nil,
        modal_station_info: nil,
        modal_temp_unit: "C",
-       signal_filter: "all",
-       signal_limit: 20,
        worker_tick: 0
      )}
   end
@@ -124,27 +120,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
 
   def handle_info({:forecast_updated, _station_code}, socket) do
     {:noreply, socket}
-  end
-
-  def handle_info({:signal_detected, signal}, socket) do
-    signals = [signal | socket.assigns.signals] |> Enum.take(50)
-    {:noreply, assign(socket, signals: signals)}
-  end
-
-  def handle_info({:auto_buy_executed, station_code, details}, socket) do
-    auto_buy_signal =
-      %{
-        type: :auto_buy,
-        station_code: station_code,
-        outcome_label: details[:outcome_label] || "Unknown",
-        market_price: details[:price],
-        edge: nil,
-        alert_level: nil,
-        timestamp: DateTime.utc_now()
-      }
-
-    signals = [auto_buy_signal | socket.assigns.signals] |> Enum.take(50)
-    {:noreply, assign(socket, signals: signals)}
   end
 
   def handle_info({:new_event, _station_code, _cluster}, socket) do
@@ -291,26 +266,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
     {:noreply, socket}
   end
 
-  def handle_event("filter_signals", %{"filter" => filter}, socket) do
-    {:noreply, assign(socket, signal_filter: filter, signal_limit: 20)}
-  end
-
-  def handle_event("load_more_signals", _params, socket) do
-    new_limit = socket.assigns.signal_limit + 20
-    total = length(socket.assigns.signals)
-
-    # If we need more from DB, fetch them
-    socket =
-      if new_limit > total do
-        signals = WeatherEdge.Signals.list_recent(limit: new_limit)
-        assign(socket, signals: signals)
-      else
-        socket
-      end
-
-    {:noreply, assign(socket, signal_limit: new_limit)}
-  end
-
   def handle_event("trigger_worker", %{"worker" => worker}, socket) do
     worker_module = worker_module(worker)
 
@@ -379,7 +334,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
         <div class="flex flex-wrap gap-2">
           <.worker_button label="Scan Events" desc="Find new Polymarket temperature markets" worker="event_scanner" last_run={job_ago(:event_scanner)} running={job_running?(:event_scanner)} tick={@worker_tick} />
           <.worker_button label="Refresh Forecasts" desc="Fetch predictions from all 8 weather models (updates Model Breakdown)" worker="forecast_refresh" last_run={job_ago(:forecast_refresh)} running={job_running?(:forecast_refresh)} tick={@worker_tick} />
-          <.worker_button label="Detect Mispricings" desc="Compare model probabilities vs market prices, generate signals" worker="mispricing" last_run={job_ago(:mispricing)} running={job_running?(:mispricing)} tick={@worker_tick} />
           <.worker_button label="Snapshot Prices" desc="Save current Polymarket prices for P&L tracking" worker="price_snapshot" last_run={job_ago(:price_snapshot)} running={job_running?(:price_snapshot)} tick={@worker_tick} />
           <.worker_button label="Monitor Positions" desc="Check open positions and update unrealized P&L" worker="position_monitor" last_run={job_ago(:position_monitor)} running={job_running?(:position_monitor)} tick={@worker_tick} />
           <.worker_button label="Resolve Events" desc="Close past events, fetch actual temps, finalize P&L" worker="resolution" last_run={job_ago(:resolution)} running={job_running?(:resolution)} tick={@worker_tick} />
@@ -406,8 +360,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
         <p class="text-lg">No stations yet. Add one to get started.</p>
       </div>
 
-      <.signal_feed signals={@signals} filter={@signal_filter} limit={@signal_limit} />
-
       <.add_station_modal
         show={@show_add_station_modal}
         step={@modal_step}
@@ -432,7 +384,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
   defp subscribe_station(station) do
     PubSubHelper.subscribe(PubSubHelper.station_new_event(station.code))
     PubSubHelper.subscribe(PubSubHelper.station_forecast_update(station.code))
-    PubSubHelper.subscribe(PubSubHelper.station_signal(station.code))
     PubSubHelper.subscribe(PubSubHelper.station_auto_buy(station.code))
     PubSubHelper.subscribe(PubSubHelper.station_price_update(station.code))
   end
@@ -490,7 +441,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
 
   defp worker_module("event_scanner"), do: WeatherEdge.Workers.EventScannerWorker
   defp worker_module("forecast_refresh"), do: WeatherEdge.Workers.ForecastRefreshWorker
-  defp worker_module("mispricing"), do: WeatherEdge.Workers.MispricingWorker
   defp worker_module("price_snapshot"), do: WeatherEdge.Workers.PriceSnapshotWorker
   defp worker_module("position_monitor"), do: WeatherEdge.Workers.PositionMonitorWorker
   defp worker_module("resolution"), do: WeatherEdge.Workers.ResolutionWorker
@@ -501,7 +451,6 @@ defmodule WeatherEdgeWeb.DashboardLive do
 
   defp worker_label("event_scanner"), do: "Event Scanner"
   defp worker_label("forecast_refresh"), do: "Forecast Refresh"
-  defp worker_label("mispricing"), do: "Mispricing Detector"
   defp worker_label("price_snapshot"), do: "Price Snapshot"
   defp worker_label("position_monitor"), do: "Position Monitor"
   defp worker_label("resolution"), do: "Resolution"

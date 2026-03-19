@@ -77,24 +77,6 @@ defmodule WeatherEdgeWeb.DashboardLiveTest do
       assert html =~ "Sao Paulo"
     end
 
-    test "handles signal_detected broadcast", %{conn: conn} do
-      station = create_station()
-      {:ok, view, _html} = live(conn, "/")
-
-      signal = %{
-        station_code: "SBSP",
-        outcome_label: "28C",
-        market_price: 0.30,
-        edge: 0.15,
-        alert_level: "strong",
-        computed_at: DateTime.utc_now()
-      }
-
-      PubSubHelper.broadcast(PubSubHelper.station_signal(station.code), {:signal_detected, signal})
-
-      html = render(view)
-      assert html =~ "28C"
-    end
   end
 
   describe "add station modal" do

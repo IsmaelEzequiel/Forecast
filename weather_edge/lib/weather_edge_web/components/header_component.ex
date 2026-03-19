@@ -46,17 +46,8 @@ defmodule WeatherEdgeWeb.Components.HeaderComponent do
         <.link navigate="/" class="whitespace-nowrap text-xs sm:text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 px-1.5 py-0.5">
           Dashboard
         </.link>
-        <.link navigate="/signals" class="whitespace-nowrap text-xs sm:text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 px-1.5 py-0.5">
-          Signals
-        </.link>
         <.link navigate="/positions" class="whitespace-nowrap text-xs sm:text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 px-1.5 py-0.5">
           Positions
-        </.link>
-        <.link navigate="/analytics" class="whitespace-nowrap text-xs sm:text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 px-1.5 py-0.5">
-          Analytics
-        </.link>
-        <.link navigate="/docs" class="whitespace-nowrap text-xs sm:text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 px-1.5 py-0.5">
-          Docs
         </.link>
         <.link href="/admin/dashboard/oban" class="whitespace-nowrap text-xs sm:text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200 px-1.5 py-0.5">
           Admin

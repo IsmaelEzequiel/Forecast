@@ -81,7 +81,6 @@ defmodule WeatherEdge.Stations do
 
       if cluster_ids != [] do
         from(s in WeatherEdge.Markets.MarketSnapshot, where: s.market_cluster_id in ^cluster_ids) |> Repo.delete_all()
-        from(s in WeatherEdge.Signals.Signal, where: s.market_cluster_id in ^cluster_ids) |> Repo.delete_all()
         from(p in WeatherEdge.Trading.Position, where: p.market_cluster_id in ^cluster_ids) |> Repo.delete_all()
       end
 

@@ -19,7 +19,6 @@ defmodule WeatherEdgeWeb.StationDetailLive do
         if connected?(socket) do
           PubSubHelper.subscribe(PubSubHelper.station_forecast_update(code))
           PubSubHelper.subscribe(PubSubHelper.station_price_update(code))
-          PubSubHelper.subscribe(PubSubHelper.station_signal(code))
           PubSubHelper.subscribe(PubSubHelper.station_auto_buy(code))
           PubSubHelper.subscribe(PubSubHelper.portfolio_position_update())
           send(self(), :load_data)
