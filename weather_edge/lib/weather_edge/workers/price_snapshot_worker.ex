@@ -63,29 +63,28 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
 
   defp snapshot_cluster(cluster) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    # Primary: re-fetch prices from Gamma API (same source as Polymarket UI)
-    gamma_prices = fetch_gamma_prices(cluster)
-
     outcomes = cluster.outcomes || []
 
     updated_outcomes =
       Enum.map(outcomes, fn outcome ->
         label = outcome["outcome_label"] || ""
-        question = outcome["question"] || ""
+        token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first() |> strip_token_quotes()
         old_yes = outcome["yes_price"]
         old_no = outcome["no_price"]
 
-        # Match by question text against Gamma response
-        {yes_price, no_price} =
-          case Map.get(gamma_prices, question) do
-            {gyes, gno} when is_number(gyes) and gyes > 0 -> {gyes, gno}
-            _ -> {old_yes, old_no}
+        yes_price =
+          if token_id do
+            case fetch_last_trade_price(token_id) do
+              {:ok, price} when price > 0 -> price
+              _ -> old_yes
+            end
+          else
+            old_yes
           end
 
-        # Store snapshot
-        token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first() |> strip_token_quotes()
+        no_price = if is_number(yes_price) and yes_price > 0, do: Float.round(1.0 - yes_price, 4), else: old_no
 
+        # Store snapshot
         if token_id do
           attrs = %{
             market_cluster_id: cluster.id,
@@ -116,53 +115,27 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
       Logger.error("PriceSnapshotWorker: Error snapshotting cluster #{cluster.id}: #{Exception.message(e)}")
   end
 
-  # Fetch fresh prices from Gamma API by event slug (same source as Polymarket UI)
-  defp fetch_gamma_prices(cluster) do
-    slug = cluster.event_slug
+  # CLOB /last-trade-price — returns last traded price, defaults to 0.5 if no trades
+  defp fetch_last_trade_price(token_id) do
+    url = "https://clob.polymarket.com/last-trade-price"
 
-    if slug do
-      case WeatherEdge.Markets.GammaClient.get_event_by_slug(slug) do
-        {:ok, event} ->
-          markets = Map.get(event, "markets", [])
+    case Req.get(url, params: [token_id: token_id], receive_timeout: 10_000) do
+      {:ok, %Req.Response{status: 200, body: %{"price" => price}}} when is_binary(price) ->
+        case Float.parse(price) do
+          {val, _} -> {:ok, val}
+          :error -> {:error, :parse_error}
+        end
 
-          Map.new(markets, fn m ->
-            question = Map.get(m, "question", "")
-            outcome_prices = Map.get(m, "outcomePrices", "")
+      {:ok, %Req.Response{status: 200, body: %{"price" => price}}} when is_number(price) ->
+        {:ok, price / 1}
 
-            {yes, no} =
-              case Jason.decode(outcome_prices) do
-                {:ok, [yes_str, no_str | _]} ->
-                  {safe_float(yes_str), safe_float(no_str)}
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:api_error, status}}
 
-                {:ok, [yes_str]} ->
-                  y = safe_float(yes_str)
-                  {y, Float.round(1.0 - y, 4)}
-
-                _ ->
-                  {0.0, 0.0}
-              end
-
-            {question, {yes, no}}
-          end)
-
-        {:error, reason} ->
-          Logger.warning("PriceSnapshotWorker: Gamma fetch failed for #{slug}: #{inspect(reason)}")
-          %{}
-      end
-    else
-      %{}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
-
-  defp safe_float(val) when is_binary(val) do
-    case Float.parse(val) do
-      {f, _} -> f
-      :error -> 0.0
-    end
-  end
-
-  defp safe_float(val) when is_number(val), do: val / 1
-  defp safe_float(_), do: 0.0
 
   # If any outcome has YES price >= 0.99 (or all are nil/0), Polymarket has resolved this market.
   # Mark it resolved so the mispricing worker stops generating signals for it.

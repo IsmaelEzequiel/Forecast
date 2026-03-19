@@ -948,27 +948,26 @@ defmodule WeatherEdgeWeb.PositionsLive do
   @impl true
   def handle_info({:do_refresh_card, cluster_id}, socket) do
     require Logger
-    Logger.info("RefreshCard: Refreshing cluster #{cluster_id}")
+    Logger.info("RefreshCard: Fetching live prices for cluster #{cluster_id}")
 
-    # 1. Snapshot fresh prices from Polymarket CLOB API
+    # Fetch fresh prices from Polymarket for this cluster only
     WeatherEdge.Workers.PriceSnapshotWorker.snapshot_cluster_by_id(cluster_id)
 
-    # 2. Refresh forecasts for this cluster's station + target_date
-    cluster = WeatherEdge.Markets.get_cluster(cluster_id)
-
-    if cluster do
-      %{station_code: cluster.station_code}
-      |> WeatherEdge.Workers.ForecastRefreshWorker.new(queue: :forecasts)
-      |> Oban.insert()
-    end
-
-    # 3. Recompute opportunities with fresh price data
-    opportunities = scan_dutch_opportunities()
+    # Recompute only this cluster's opportunity with fresh DB data
+    opportunities =
+      Enum.map(socket.assigns.opportunities, fn opp ->
+        if opp.cluster_id == cluster_id do
+          rebuild_opportunity(cluster_id)
+        else
+          opp
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
 
     {:noreply,
      socket
      |> assign(opportunities: opportunities, refreshing_card: nil)
-     |> put_flash(:info, "Prices refreshed for cluster #{cluster_id}")}
+     |> put_flash(:info, "Prices refreshed")}
   end
 
   @impl true
@@ -1130,6 +1129,32 @@ defmodule WeatherEdgeWeb.PositionsLive do
     |> Enum.sort_by(& &1.deviation, :desc)
   rescue
     _ -> []
+  end
+
+  # Rebuild a single opportunity from fresh DB data
+  defp rebuild_opportunity(cluster_id) do
+    cluster = Markets.get_cluster(cluster_id)
+
+    if cluster && cluster.target_date && Date.compare(cluster.target_date, Date.utc_today()) == :gt do
+      outcomes = cluster.outcomes || []
+      sum_yes = Enum.reduce(outcomes, 0.0, fn o, acc -> acc + (o["yes_price"] || o["price"] || 0) end)
+      picks = compute_recommended_picks(cluster, outcomes)
+      picks_sum = Enum.reduce(picks, 0.0, fn p, acc -> acc + p.price end)
+
+      %{
+        cluster_id: cluster.id,
+        station_code: cluster.station_code,
+        title: cluster.title || "#{cluster.station_code} #{cluster.target_date}",
+        target_date: cluster.target_date,
+        event_slug: cluster.event_slug,
+        sum_yes: sum_yes,
+        deviation: 1.0 - sum_yes,
+        num_outcomes: length(outcomes),
+        est_profit_pct: if(picks_sum > 0 and picks_sum < 1.0, do: 1.0 / picks_sum - 1.0, else: nil),
+        picks_sum: picks_sum,
+        picks: picks
+      }
+    end
   end
 
   defp compute_recommended_picks(cluster, outcomes) do
