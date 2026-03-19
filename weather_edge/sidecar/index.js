@@ -182,6 +182,32 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200);
       return res.end(JSON.stringify({ ok: true, result }));
 
+    } else if (req.method === "POST" && req.url === "/prices") {
+      // Fetch midpoint prices for multiple token IDs
+      const body = await parseBody(req);
+      const { token_ids } = body; // array of { token_id, label }
+
+      if (!Array.isArray(token_ids) || token_ids.length === 0) {
+        res.writeHead(400);
+        return res.end(JSON.stringify({ error: "missing field: token_ids (array of {token_id, label})" }));
+      }
+
+      console.log(`[${ts()}] Prices: fetching ${token_ids.length} midpoints`);
+
+      const results = await Promise.allSettled(
+        token_ids.map(async ({ token_id, label }) => {
+          const mid = await client.getMidpoint(token_id);
+          return { token_id, label, midpoint: parseFloat(mid) || 0 };
+        })
+      );
+
+      const prices = results
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => r.value);
+
+      res.writeHead(200);
+      return res.end(JSON.stringify({ ok: true, prices }));
+
     } else if (req.method === "GET" && req.url === "/open-orders") {
       const orders = await client.getOpenOrders();
       res.writeHead(200);

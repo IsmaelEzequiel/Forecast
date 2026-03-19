@@ -65,69 +65,78 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     outcomes = cluster.outcomes || []
 
-    # Snapshot each outcome and collect updated prices
+    # Build token list for batch midpoint fetch via sidecar
+    midpoint_map = fetch_midpoints(outcomes)
+
+    # Update each outcome with fresh prices
     updated_outcomes =
       Enum.map(outcomes, fn outcome ->
-        {yes_price, no_price} = snapshot_outcome(cluster, outcome, now)
+        label = outcome["outcome_label"] || ""
+        token_id = outcome["clob_token_ids"] |> List.wrap() |> List.first() |> strip_token_quotes()
+        old_yes = outcome["yes_price"]
+        old_no = outcome["no_price"]
+
+        yes_price =
+          case Map.get(midpoint_map, token_id) do
+            mid when is_number(mid) and mid > 0 -> mid
+            _ -> fetch_price(token_id, "buy") || old_yes
+          end
+
+        no_price = if is_number(yes_price) and yes_price > 0, do: Float.round(1.0 - yes_price, 4), else: old_no
+
+        # Store snapshot
+        if token_id do
+          attrs = %{
+            market_cluster_id: cluster.id,
+            snapshot_at: now,
+            outcome_label: label,
+            yes_price: yes_price,
+            no_price: no_price
+          }
+
+          case %MarketSnapshot{} |> MarketSnapshot.changeset(attrs) |> Repo.insert() do
+            {:ok, _} -> :ok
+            {:error, cs} -> Logger.error("PriceSnapshotWorker: Snapshot insert failed for #{label}: #{inspect(cs.errors)}")
+          end
+        end
+
         outcome
         |> Map.put("yes_price", yes_price)
         |> Map.put("no_price", no_price)
       end)
 
-    # Update cluster with fresh prices so the detector uses current data
+    # Update cluster with fresh prices
     cluster
     |> Ecto.Changeset.change(%{outcomes: updated_outcomes})
     |> Repo.update()
 
-    # Detect if market is resolved (any outcome at 100% or all at 0)
     maybe_auto_resolve(cluster, updated_outcomes)
   rescue
     e ->
-      Logger.error(
-        "PriceSnapshotWorker: Error snapshotting cluster #{cluster.id}: #{Exception.message(e)}"
-      )
+      Logger.error("PriceSnapshotWorker: Error snapshotting cluster #{cluster.id}: #{Exception.message(e)}")
   end
 
-  # Returns {yes_price, no_price} for the outcome (keeping old values on failure)
-  defp snapshot_outcome(cluster, outcome, now) do
-    label = outcome["outcome_label"]
-    token_ids = outcome["clob_token_ids"] |> List.wrap() |> List.first() |> strip_token_quotes()
-    old_yes = outcome["yes_price"]
-    old_no = outcome["no_price"]
+  # Batch fetch midpoint prices from sidecar (official Polymarket SDK)
+  defp fetch_midpoints(outcomes) do
+    token_entries =
+      outcomes
+      |> Enum.map(fn o ->
+        token_id = o["clob_token_ids"] |> List.wrap() |> List.first() |> strip_token_quotes()
+        label = o["outcome_label"] || ""
+        %{token_id: token_id, label: label}
+      end)
+      |> Enum.filter(fn e -> e.token_id != nil end)
 
-    if is_nil(token_ids) do
-      Logger.warning("PriceSnapshotWorker: No token ID for outcome #{label} in cluster #{cluster.id}")
-      {old_yes, old_no}
-    else
-      yes_price = fetch_price(token_ids, "buy")
-      no_price = fetch_price(token_ids, "sell")
+    case WeatherEdge.Trading.SidecarClient.get_midpoints(token_entries) do
+      {:ok, prices} when is_list(prices) ->
+        Map.new(prices, fn p ->
+          {p["token_id"], p["midpoint"] || 0}
+        end)
 
-      attrs = %{
-        market_cluster_id: cluster.id,
-        snapshot_at: now,
-        outcome_label: label,
-        yes_price: yes_price,
-        no_price: no_price
-      }
-
-      case %MarketSnapshot{} |> MarketSnapshot.changeset(attrs) |> Repo.insert() do
-        {:ok, _snapshot} ->
-          :ok
-
-        {:error, changeset} ->
-          Logger.error(
-            "PriceSnapshotWorker: Failed to insert snapshot for #{label}: #{inspect(changeset.errors)}"
-          )
-      end
-
-      {yes_price || old_yes, no_price || old_no}
+      {:error, reason} ->
+        Logger.warning("PriceSnapshotWorker: Sidecar midpoints failed (#{inspect(reason)}), falling back to CLOB")
+        %{}
     end
-  rescue
-    e ->
-      Logger.error(
-        "PriceSnapshotWorker: Error fetching prices for outcome #{outcome["outcome_label"]}: #{Exception.message(e)}"
-      )
-      {outcome["yes_price"], outcome["no_price"]}
   end
 
   # If any outcome has YES price >= 0.99 (or all are nil/0), Polymarket has resolved this market.

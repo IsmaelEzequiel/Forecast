@@ -30,6 +30,16 @@ defmodule WeatherEdge.Trading.SidecarClient do
     WeatherEdge.Trading.ClobClient.get_price(token_id, side)
   end
 
+  @doc "Fetch midpoint prices for a list of %{token_id, label} via sidecar SDK."
+  @spec get_midpoints(list(map())) :: {:ok, list(map())} | {:error, term()}
+  def get_midpoints(token_ids) when is_list(token_ids) do
+    case post("/prices", %{token_ids: token_ids}) do
+      {:ok, %{"prices" => prices}} -> {:ok, prices}
+      {:ok, prices} when is_list(prices) -> {:ok, prices}
+      error -> error
+    end
+  end
+
   @spec get_orderbook(String.t()) :: {:ok, map()} | {:error, term()}
   def get_orderbook(token_id) do
     WeatherEdge.Trading.ClobClient.get_orderbook(token_id)
