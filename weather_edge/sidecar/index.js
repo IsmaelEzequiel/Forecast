@@ -194,16 +194,21 @@ const server = http.createServer(async (req, res) => {
 
       console.log(`[${ts()}] Prices: fetching ${token_ids.length} midpoints`);
 
-      const results = await Promise.allSettled(
-        token_ids.map(async ({ token_id, label }) => {
-          const mid = await client.getMidpoint(token_id);
-          return { token_id, label, midpoint: parseFloat(mid) || 0 };
-        })
-      );
+      const prices = [];
+      for (const { token_id, label } of token_ids) {
+        // Strip any embedded quotes from token IDs
+        const cleanId = (token_id || "").replace(/"/g, "");
+        if (!cleanId) continue;
 
-      const prices = results
-        .filter((r) => r.status === "fulfilled")
-        .map((r) => r.value);
+        try {
+          const mid = await client.getMidpoint(cleanId);
+          prices.push({ token_id: cleanId, label, midpoint: parseFloat(mid) || 0 });
+        } catch (err) {
+          // No orderbook = no liquidity, skip silently
+          console.log(`[${ts()}] Midpoint skip ${label}: ${err.response?.data?.error || err.message}`);
+          prices.push({ token_id: cleanId, label, midpoint: 0 });
+        }
+      }
 
       res.writeHead(200);
       return res.end(JSON.stringify({ ok: true, prices }));
