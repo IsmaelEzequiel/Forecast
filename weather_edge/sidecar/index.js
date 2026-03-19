@@ -201,8 +201,11 @@ const server = http.createServer(async (req, res) => {
         if (!cleanId) continue;
 
         try {
-          const mid = await client.getMidpoint(cleanId);
-          prices.push({ token_id: cleanId, label, midpoint: parseFloat(mid) || 0 });
+          const resp = await client.getMidpoint(cleanId);
+          // SDK returns { mid_price: "0.45" }
+          const midPrice = parseFloat(resp?.mid_price ?? resp) || 0;
+          console.log(`[${ts()}] Midpoint ${label}: ${midPrice}`);
+          prices.push({ token_id: cleanId, label, midpoint: midPrice });
         } catch (err) {
           // No orderbook = no liquidity, skip silently
           console.log(`[${ts()}] Midpoint skip ${label}: ${err.response?.data?.error || err.message}`);
