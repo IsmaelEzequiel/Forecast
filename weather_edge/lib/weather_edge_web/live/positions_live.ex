@@ -825,9 +825,8 @@ defmodule WeatherEdgeWeb.PositionsLive do
 
   def handle_event("refresh_card", %{"cluster-id" => cluster_id_str}, socket) do
     cluster_id = String.to_integer(cluster_id_str)
-    socket = assign(socket, refreshing_card: cluster_id)
     send(self(), {:do_refresh_card, cluster_id})
-    {:noreply, socket}
+    {:noreply, assign(socket, refreshing_card: cluster_id)}
   end
 
   def handle_event("refresh_opportunities", _params, socket) do
@@ -948,9 +947,28 @@ defmodule WeatherEdgeWeb.PositionsLive do
 
   @impl true
   def handle_info({:do_refresh_card, cluster_id}, socket) do
+    require Logger
+    Logger.info("RefreshCard: Refreshing cluster #{cluster_id}")
+
+    # 1. Snapshot fresh prices from Polymarket CLOB API
     WeatherEdge.Workers.PriceSnapshotWorker.snapshot_cluster_by_id(cluster_id)
+
+    # 2. Refresh forecasts for this cluster's station + target_date
+    cluster = WeatherEdge.Markets.get_cluster(cluster_id)
+
+    if cluster do
+      %{station_code: cluster.station_code}
+      |> WeatherEdge.Workers.ForecastRefreshWorker.new(queue: :forecasts)
+      |> Oban.insert()
+    end
+
+    # 3. Recompute opportunities with fresh price data
     opportunities = scan_dutch_opportunities()
-    {:noreply, assign(socket, opportunities: opportunities, refreshing_card: nil)}
+
+    {:noreply,
+     socket
+     |> assign(opportunities: opportunities, refreshing_card: nil)
+     |> put_flash(:info, "Prices refreshed for cluster #{cluster_id}")}
   end
 
   @impl true
