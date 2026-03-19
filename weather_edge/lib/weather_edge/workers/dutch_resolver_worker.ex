@@ -14,12 +14,14 @@ defmodule WeatherEdge.Workers.DutchResolverWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    WeatherEdge.JobTracker.start(:dutch_resolver)
     groups = DutchGroups.list_open_with_orders()
 
     groups
     |> Enum.filter(fn g -> Date.compare(g.target_date, Date.utc_today()) in [:lt, :eq] end)
     |> Enum.each(&resolve_group/1)
 
+    WeatherEdge.JobTracker.finish(:dutch_resolver)
     :ok
   end
 

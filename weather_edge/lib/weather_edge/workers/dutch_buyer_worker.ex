@@ -17,6 +17,8 @@ defmodule WeatherEdge.Workers.DutchBuyerWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"station_code" => code, "cluster_id" => cluster_id}}) do
+    WeatherEdge.JobTracker.start(:dutch_buyer)
+
     with {:ok, station} <- Stations.get_by_code(code),
          true <- station.strategy == "dutch",
          false <- DutchGroups.exists_for_cluster?(code, cluster_id),
@@ -39,6 +41,7 @@ defmodule WeatherEdge.Workers.DutchBuyerWorker do
         :ok
     end
 
+    WeatherEdge.JobTracker.finish(:dutch_buyer)
     :ok
   end
 

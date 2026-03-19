@@ -16,12 +16,14 @@ defmodule WeatherEdge.Workers.DutchMonitorWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    WeatherEdge.JobTracker.start(:dutch_monitor)
     groups = DutchGroups.list_open_with_orders()
 
     Enum.each(groups, fn group ->
       monitor_group(group)
     end)
 
+    WeatherEdge.JobTracker.finish(:dutch_monitor)
     :ok
   end
 
