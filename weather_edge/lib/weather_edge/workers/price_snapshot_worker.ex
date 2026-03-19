@@ -15,6 +15,16 @@ defmodule WeatherEdge.Workers.PriceSnapshotWorker do
   alias WeatherEdge.Repo
   alias WeatherEdge.Trading.Position
 
+  @doc "Snapshot a single cluster by ID. Returns :ok or {:error, reason}."
+  def snapshot_cluster_by_id(cluster_id) do
+    case Repo.get(MarketCluster, cluster_id) do
+      nil -> {:error, :not_found}
+      cluster ->
+        snapshot_cluster(cluster)
+        :ok
+    end
+  end
+
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     WeatherEdge.JobTracker.start(:price_snapshot)

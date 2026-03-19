@@ -39,6 +39,7 @@ defmodule WeatherEdgeWeb.PositionsLive do
        sell_progress: nil,
        confirm_sell: nil,
        buying_dutch: nil,
+       refreshing_card: nil,
        history_expanded: false,
        dutch_budget: 50.0
      )}
@@ -105,26 +106,43 @@ defmodule WeatherEdgeWeb.PositionsLive do
                   <% end %>
                 </div>
               </div>
-              <button
-                phx-click="execute_dutch"
-                phx-value-cluster-id={opp.cluster_id}
-                phx-value-station-code={opp.station_code}
-                disabled={@buying_dutch == opp.cluster_id or opp.picks_sum >= 1.0}
-                class={[
-                  "px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap",
-                  cond do
-                    opp.picks_sum >= 1.0 -> "bg-red-200 dark:bg-red-900 text-red-400 cursor-not-allowed"
-                    @buying_dutch == opp.cluster_id -> "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed"
-                    true -> "bg-indigo-600 text-white hover:bg-indigo-700"
-                  end
-                ]}
-              >
-                <%= cond do %>
-                  <% opp.picks_sum >= 1.0 -> %>NO PROFIT
-                  <% @buying_dutch == opp.cluster_id -> %>Buying...
-                  <% true -> %>AUTO BUY
-                <% end %>
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  phx-click="refresh_card"
+                  phx-value-cluster-id={opp.cluster_id}
+                  disabled={@refreshing_card == opp.cluster_id}
+                  class={[
+                    "px-3 py-2 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap",
+                    if(@refreshing_card == opp.cluster_id,
+                      do: "border-zinc-300 dark:border-zinc-600 text-zinc-400 cursor-not-allowed",
+                      else: "border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    )
+                  ]}
+                  title="Fetch live prices from Polymarket and recompute picks"
+                >
+                  <%= if @refreshing_card == opp.cluster_id, do: "Refreshing...", else: "Refresh" %>
+                </button>
+                <button
+                  phx-click="execute_dutch"
+                  phx-value-cluster-id={opp.cluster_id}
+                  phx-value-station-code={opp.station_code}
+                  disabled={@buying_dutch == opp.cluster_id or opp.picks_sum >= 1.0}
+                  class={[
+                    "px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap",
+                    cond do
+                      opp.picks_sum >= 1.0 -> "bg-red-200 dark:bg-red-900 text-red-400 cursor-not-allowed"
+                      @buying_dutch == opp.cluster_id -> "bg-zinc-200 dark:bg-zinc-700 text-zinc-400 cursor-not-allowed"
+                      true -> "bg-indigo-600 text-white hover:bg-indigo-700"
+                    end
+                  ]}
+                >
+                  <%= cond do %>
+                    <% opp.picks_sum >= 1.0 -> %>NO PROFIT
+                    <% @buying_dutch == opp.cluster_id -> %>Buying...
+                    <% true -> %>AUTO BUY
+                  <% end %>
+                </button>
+              </div>
             </div>
 
             <%!-- Recommended picks table with allocation --%>
@@ -805,6 +823,13 @@ defmodule WeatherEdgeWeb.PositionsLive do
     end
   end
 
+  def handle_event("refresh_card", %{"cluster-id" => cluster_id_str}, socket) do
+    cluster_id = String.to_integer(cluster_id_str)
+    socket = assign(socket, refreshing_card: cluster_id)
+    send(self(), {:do_refresh_card, cluster_id})
+    {:noreply, socket}
+  end
+
   def handle_event("refresh_opportunities", _params, socket) do
     opportunities = scan_dutch_opportunities()
     {:noreply, assign(socket, :opportunities, opportunities)}
@@ -919,6 +944,13 @@ defmodule WeatherEdgeWeb.PositionsLive do
     {:noreply,
      socket
      |> assign(buying_dutch: nil, opportunities: opportunities, open_positions: open_dutch)}
+  end
+
+  @impl true
+  def handle_info({:do_refresh_card, cluster_id}, socket) do
+    WeatherEdge.Workers.PriceSnapshotWorker.snapshot_cluster_by_id(cluster_id)
+    opportunities = scan_dutch_opportunities()
+    {:noreply, assign(socket, opportunities: opportunities, refreshing_card: nil)}
   end
 
   @impl true
