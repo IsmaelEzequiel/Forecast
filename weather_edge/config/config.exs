@@ -80,8 +80,7 @@ config :weather_edge, :trading,
 
 # Forecast config
 config :weather_edge, :forecasts,
-  models: ["gfs", "ecmwf_ifs", "icon_global", "jma", "gem_global", "ukmo", "arpege",
-           "bom_access_global", "cma_grapes_global", "kma_gdps"],
+  models: ["gfs", "ecmwf_ifs", "icon_global", "jma", "gem_global"],
   open_meteo_base_url: "https://api.open-meteo.com/v1",
   metar_base_url: "https://aviationweather.gov"
 
